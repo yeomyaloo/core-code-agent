@@ -93,6 +93,13 @@ public class JavaProject {
         return lineage.stream().flatMap(t -> t.superTypes().stream()).anyMatch(SinkRules.REPOSITORY_TYPES::contains);
     }
 
+    /** 타입과 프로젝트 안의 상위 타입들이 상속·구현하는 모든 타입 이름 (프로젝트 밖 프레임워크 타입 포함, 가까운 순) */
+    public Set<String> lineage(TypeInfo type) {
+        Set<String> result = new LinkedHashSet<>(type.superTypes());
+        ancestors(type).forEach(a -> result.addAll(a.superTypes()));
+        return result;
+    }
+
     public List<String> parseErrors() {
         return parseErrors;
     }

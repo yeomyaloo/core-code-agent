@@ -1,6 +1,6 @@
 # core-code-agent
 
-The shared code graph engine behind [be-code-agent](https://github.com/yeomyaloo/be-code-agent) (Spring server with an agent loop) and [mcp-code-agent](https://github.com/yeomyaloo/mcp-code-agent) (MCP server / Claude Code plugin).
+The shared code graph engine behind [be-code-agent](https://github.com/yeomyaloo/be-code-agent) (Spring server with an agent loop) and [mcp-code-agent](https://github.com/yeomyaloo/mcp-code-agent) (MCP server / Claude Code plugin). [Sherlock Phones](https://github.com/yeomyaloo/sherlock-phones) (mobile app audits) builds its Android graph on the same Java building blocks.
 
 It parses source code statically (no build, no execution) and produces a code graph: files, classes, methods, HTTP entry points, sinks (risky API calls), and the edges between them. Both servers then search entry point → sink paths and let Claude investigate them. The engine itself uses no LLM, database or network.
 
@@ -69,6 +69,7 @@ Set<String> languages = result.languages();      // e.g. [java, javascript] or [
 | `model.CodeNodeKind` | `MODULE`, `FILE`, `CLASS`, `METHOD`, `ENTRY_POINT`, `SINK` |
 | `model.CodeEdgeKind` | `CONTAINS`, `CALLS`, `ROUTES_TO`, `OVERRIDDEN_BY` |
 | `rules.SinkRules` | Sink rules and category priority (`priority`) used to order investigations |
+| `java.JavaGraphSupport` | Java building blocks with no rules attached: structure (FILE → CLASS → METHOD), override edges, call target type resolution (with optional known framework return types such as `getIntent` → `android.content.Intent`), project call linking, sink nodes. The Spring `CodeGraphBuilder` uses it; other products plug in their own entry points and rules (Sherlock Phones: exported Android components, JS bridges, Android sinks) |
 
 Node props shared with both servers: sinks have `category`, `cwe`, `api`, `method`, `snippet` (and `frontend=true` for JS/TS); entry points have `httpMethod`, `path`, `handler`. Python nodes also carry `language=python`; entry points add `framework=fastapi` and `dependencies` (the `Depends(...)` functions, including router-level ones). Nodes without `language` are Java.
 
@@ -92,6 +93,7 @@ Python notes:
 |---|---|---|
 | 1 | Extract the engine from be-code-agent and mcp-code-agent into this library (no behavior change) | ✅ Done |
 | 2 | Language plugins (`LanguageParser`), language detection, Python/FastAPI parser (tree-sitter) | ✅ Done (v0.2.0) |
+| 2-1 | `JavaGraphSupport`: the rule-free Java building blocks as public API, so other products (Sherlock Phones for Android) reuse parsing and call linking instead of copying them. No change in be/mcp output | ✅ Done (v0.3.0) |
 | 3 | TypeScript backend parser on the same plugin interface | ⏳ Planned |
 
 ## Development
@@ -129,7 +131,7 @@ Apache-2.0. Ideas from ARTEX were used as reference only; no code or prompts wer
 
 # core-code-agent (한국어)
 
-[be-code-agent](https://github.com/yeomyaloo/be-code-agent)(에이전트 루프가 있는 Spring 서버)와 [mcp-code-agent](https://github.com/yeomyaloo/mcp-code-agent)(MCP 서버 / Claude Code 플러그인)가 같이 쓰는 코드 그래프 엔진이다.
+[be-code-agent](https://github.com/yeomyaloo/be-code-agent)(에이전트 루프가 있는 Spring 서버)와 [mcp-code-agent](https://github.com/yeomyaloo/mcp-code-agent)(MCP 서버 / Claude Code 플러그인)가 같이 쓰는 코드 그래프 엔진이다. 모바일 앱 검사 도구 [Sherlock Phones](https://github.com/yeomyaloo/sherlock-phones)도 같은 Java 부품 위에 안드로이드 그래프를 만든다.
 
 소스코드를 정적으로 파싱해서(빌드·실행하지 않음) 파일·클래스·메서드·HTTP 진입점·위험 지점(위험한 API 호출)과 그 관계를 코드 그래프로 만든다. 두 서버는 이 그래프에서 진입점 → 위험 지점 경로를 찾아 Claude 가 조사하게 한다. 엔진 자체는 LLM·DB·네트워크를 쓰지 않는다.
 
@@ -168,6 +170,7 @@ Set<String> languages = result.languages();      // 예: [java, javascript] 또�
 | `model.CodeNodeKind` | `MODULE`, `FILE`, `CLASS`, `METHOD`, `ENTRY_POINT`, `SINK` |
 | `model.CodeEdgeKind` | `CONTAINS`, `CALLS`, `ROUTES_TO`, `OVERRIDDEN_BY` |
 | `rules.SinkRules` | 위험 지점 규칙과 분류 우선순위(`priority`, 조사 순서에 씀) |
+| `java.JavaGraphSupport` | 규칙이 붙지 않은 Java 부품: 구조(FILE → CLASS → METHOD), 상속 연결, 호출 대상 타입 알아내기(라이브러리 jar 없이 아는 프레임워크 반환 타입, 예: `getIntent` → `android.content.Intent`), 프로젝트 호출 잇기, 위험 지점 노드 만들기. Spring 용 `CodeGraphBuilder` 가 쓰고, 다른 제품은 자기 진입점·규칙만 얹는다(Sherlock Phones: 외부에 열린 안드로이드 컴포넌트, JS 브리지, 안드로이드 위험 지점) |
 
 두 서버가 같이 쓰는 노드 props: 위험 지점은 `category`, `cwe`, `api`, `method`, `snippet`(JS/TS 는 `frontend=true`), 진입점은 `httpMethod`, `path`, `handler`. Python 노드는 `language=python` 이 붙고, 진입점은 `framework=fastapi` 와 `dependencies`(라우터에 건 것까지 포함한 `Depends(...)` 함수)가 더 있다. `language` 가 없으면 Java 다.
 
@@ -191,6 +194,7 @@ Python 참고:
 |---|---|---|
 | 1 | be-code-agent·mcp-code-agent 의 엔진을 이 라이브러리로 추출 (동작 변화 없음) | ✅ 완료 |
 | 2 | 언어 플러그인(`LanguageParser`), 언어 자동 판별, Python/FastAPI 파서 (tree-sitter) | ✅ 완료 (v0.2.0) |
+| 2-1 | `JavaGraphSupport`: 규칙이 붙지 않은 Java 부품을 공개 API 로. 다른 제품(안드로이드용 Sherlock Phones)이 파싱·호출 연결을 복사하지 않고 쓴다. be·mcp 결과는 그대로 | ✅ 완료 (v0.3.0) |
 | 3 | 같은 플러그인 구조로 TypeScript 백엔드 파서 | ⏳ 예정 |
 
 ## 개발

@@ -1,6 +1,6 @@
 # core-code-agent
 
-be-code-agent(Spring 서버)와 mcp-code-agent(MCP 서버)가 같이 쓰는 코드 그래프 엔진 라이브러리. 소스코드를 정적 파싱해 파일·클래스·메서드·진입점·위험 지점과 그 관계를 만든다. LLM·DB·네트워크를 쓰지 않는다.
+be-code-agent(Spring 서버)와 mcp-code-agent(MCP 서버)가 같이 쓰는 코드 그래프 엔진 라이브러리. Sherlock Phones(`../phonetective`, 모바일 앱 검사)도 `JavaGraphSupport` 위에 안드로이드 그래프를 만든다. 소스코드를 정적 파싱해 파일·클래스·메서드·진입점·위험 지점과 그 관계를 만든다. LLM·DB·네트워크를 쓰지 않는다.
 
 ## 명령
 
@@ -21,7 +21,7 @@ be-code-agent(Spring 서버)와 mcp-code-agent(MCP 서버)가 같이 쓰는 코�
 | `com.codeagent.core` | `CodeGraphEngine.analyze(root)` 입구(언어 판별 후 `LanguageParser` 들을 차례로 실행). 결과는 `Result(draft, parseErrors, languages)`. `SourceFiles` 는 파일 찾기 |
 | `model` | `CodeNodeKind`, `CodeEdgeKind`, `CodeGraphDraft`(저장 전 그래프). 공개 출력 모델 |
 | `rules` | `SinkRule`, `SinkRules`(Java 위험 지점 규칙, 분류 우선순위 `priority`/`CATEGORY_ORDER`), `PythonSinkRules`(정규화 이름 기준) |
-| `java` | Java/Spring: `JavaProject`(파싱·색인), `TypeResolver`, `EntryPointDetector`, `CodeGraphBuilder` |
+| `java` | Java/Spring: `JavaProject`(파싱·색인), `TypeResolver`, `EntryPointDetector`, `CodeGraphBuilder`(Spring 진입점·규칙). `JavaGraphSupport` 는 규칙 없는 공용 부품(구조, 상속, 호출 대상 타입, 호출 잇기, 위험 지점 노드)이라 Spring 빌더와 Sherlock Phones 가 같이 쓴다 |
 | `python` | Python: `PythonLanguage`(tree-sitter 로 파싱, 네이티브 로드 실패 시 건너뜀), `PythonModule`(import·정의 색인), `PythonGraphBuilder`(FastAPI 진입점·Depends, 호출, 위험 지점) |
 | `frontend` | `FrontendGraph`(그래프에 더함), `FrontendScanner`: JS/TS/Vue/HTML 줄 단위 정규식 위험 패턴 (비밀값은 snippet 에서 가린다) |
 
@@ -31,6 +31,7 @@ be-code-agent(Spring 서버)와 mcp-code-agent(MCP 서버)가 같이 쓰는 코�
 
 - be·mcp 는 `CodeGraphDraft` 를 각자 모델로 옮긴다(be: `CodeGraphIndexer` → DB, mcp: `CodeGraph` → 메모리 색인). 노드 kind 문자열과 props 키(`category`, `cwe`, `api`, `method`, `snippet`, `frontend`, `language`, `httpMethod`, `path`, `handler`)는 두 소비자가 그대로 쓰므로 바꾸면 양쪽을 같이 고친다. be 는 kind 를 DB 에 문자열로 저장한다.
 - 위험 지점 규칙을 바꾸면 be `BenchmarkSinkTest`, mcp `BenchmarkTest` 가 정답 목록과 정확히 같은지 본다. 두 저장소에서 확인한다.
+- `JavaGraphSupport` 를 바꾸면 Sherlock Phones 의 `BenchmarkTest` 도 돌린다(`-PcoreCodeAgentDir=../core-code-agent`).
 
 ## 규칙
 

@@ -80,4 +80,10 @@ public interface LanguageParser {
 
 ## 6. 다른 사본: phonetective (Sherlock Phones)
 
-`com.sherlockphones.codegraph` 는 mcp 엔진을 안드로이드용으로 바꾼 사본이다. EntryPointDetector 대신 Component/AppScan/LineScanner 가 있다. 하지만 `JavaProject`·`TypeResolver`·`CodeGraphDraft` 는 같은 계열이라, 진입점 탐지기와 규칙 세트를 주입하는 SPI 를 열면 나중에 이 엔진 위에 안드로이드 규칙만 얹는 형태로 옮길 수 있다(추측, 이번 범위 밖).
+`com.sherlockphones.codegraph` 는 mcp 엔진을 안드로이드용으로 바꾼 사본이었다. EntryPointDetector 대신 Component/AppScan/LineScanner 가 있었고, `JavaProject`·`TypeResolver`·`CodeGraphDraft` 와 호출 연결 코드는 같았다.
+
+v0.3.0 에서 옮겼다:
+- core 의 Spring `CodeGraphBuilder` 에서 규칙과 상관없는 부분(구조, 상속 연결, 호출 대상 타입, 프로젝트 호출 잇기, 위험 지점 노드)을 공개 클래스 `JavaGraphSupport` 로 꺼냈다. Spring 빌더는 진입점 탐지와 규칙 판단만 남기고 이것을 쓴다. be·mcp 테스트를 새 core 소스(composite build)로 돌려 결과가 같음을 확인했다.
+- 프레임워크 메서드 반환 타입 표(`knownReturnTypes`)를 받게 했다. Spring 은 빈 표라서 동작이 같고, 안드로이드는 `getIntent` → `android.content.Intent` 같은 표를 넘긴다.
+- Sherlock Phones 는 `JavaProject`·`TypeResolver`·그래프 모델 사본을 지우고, 안드로이드 빌더(외부에 열린 컴포넌트·JS 브리지 진입점, 안드로이드 규칙, 아무 인증서나 믿는 TLS 구현, 줄 단위·설정 위험 지점)만 남겼다. 벤치마크 34곳은 옮기기 전과 같다.
+- 다음: Kotlin·Swift 를 tree-sitter `LanguageParser` 로 core 에 더하면 서버(Kotlin Spring)와 모바일이 같이 쓴다.
