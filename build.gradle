@@ -4,7 +4,7 @@ plugins {
 }
 
 group = 'com.codeagent'
-version = '0.1.0'
+version = '0.2.0'
 
 java {
 	toolchain {
@@ -22,6 +22,9 @@ dependencies {
 	// java 패키지(JavaProject 등)를 쓰는 쪽을 위해 api 로 둔다
 	api 'com.github.javaparser:javaparser-symbol-solver-core:3.26.4'
 	implementation 'org.slf4j:slf4j-api:2.0.17'
+	// Python 파싱 (tree-sitter JNI 바인딩, 네이티브 라이브러리는 jar 안에 OS별로 들어 있음. MIT)
+	implementation 'io.github.bonede:tree-sitter:0.26.6'
+	implementation 'io.github.bonede:tree-sitter-python:0.25.0'
 
 	testImplementation platform('org.junit:junit-bom:5.13.4')
 	testImplementation 'org.junit.jupiter:junit-jupiter'
@@ -38,6 +41,11 @@ tasks.withType(JavaCompile).configureEach {
 
 tasks.named('test') {
 	useJUnitPlatform()
+	// -PtestJavaVersion=17 이면 테스트를 그 버전 JVM 으로 돌린다 (mcp 플러그인이 Java 17 에서 도는지 확인용)
+	def testJavaVersion = providers.gradleProperty('testJavaVersion').orNull
+	if (testJavaVersion) {
+		javaLauncher = javaToolchains.launcherFor { languageVersion = JavaLanguageVersion.of(testJavaVersion as int) }
+	}
 	systemProperty 'file.encoding', 'UTF-8'
 }
 

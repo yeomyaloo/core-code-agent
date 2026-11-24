@@ -55,20 +55,22 @@ To build a consumer against a local checkout instead (no token), both servers ac
 ```java
 CodeGraphEngine.Result result = CodeGraphEngine.analyze(Path.of("/path/to/repo"));
 CodeGraphDraft graph = result.draft();          // nodes and edges
-List<String> errors = result.parseErrors();      // files that could not be parsed
+List<String> errors = result.parseErrors();      // files that could not be (fully) parsed
+Set<String> languages = result.languages();      // e.g. [java, javascript] or [python]
 ```
 
 ## Public API
 
 | Type | Role |
 |---|---|
-| `CodeGraphEngine.analyze(Path)` | Entry point. Reads the repository and returns `Result(draft, parseErrors)` |
+| `CodeGraphEngine.analyze(Path)` | Entry point. Detects the languages in the repository (by file extension), runs the matching parsers and returns `Result(draft, parseErrors, languages)` |
+| `LanguageParser` | One per language: `language()`, `detect(root)`, `contribute(root, draft, parseErrors)`. Java, Python and frontend are implementations |
 | `model.CodeGraphDraft` | Graph before saving. Nodes are keyed by (kind, qualified name), duplicates are dropped |
 | `model.CodeNodeKind` | `MODULE`, `FILE`, `CLASS`, `METHOD`, `ENTRY_POINT`, `SINK` |
 | `model.CodeEdgeKind` | `CONTAINS`, `CALLS`, `ROUTES_TO`, `OVERRIDDEN_BY` |
 | `rules.SinkRules` | Sink rules and category priority (`priority`) used to order investigations |
 
-Node props shared with both servers: sinks have `category`, `cwe`, `api`, `method`, `snippet` (and `frontend=true` for JS/TS); entry points have `httpMethod`, `path`, `handler`.
+Node props shared with both servers: sinks have `category`, `cwe`, `api`, `method`, `snippet` (and `frontend=true` for JS/TS); entry points have `httpMethod`, `path`, `handler`. Python nodes also carry `language=python`; entry points add `framework=fastapi` and `dependencies` (the `Depends(...)` functions, including router-level ones). Nodes without `language` are Java.
 
 ## Supported languages
 
@@ -76,14 +78,20 @@ Node props shared with both servers: sinks have `category`, `cwe`, `api`, `metho
 |---|---|---|---|
 | Java / Spring | Spring MVC mappings | 54 rules (SQL, command, path, SSRF, XXE, deserialization, XSS, crypto, IDOR candidates…) | type-resolved (imports, declarations, symbol solver) |
 | JS / TS / Vue / HTML | – | 27 line-based patterns (XSS, eval, open redirect, token storage, secrets…) | – |
-| Python / FastAPI | planned | planned | planned |
+| Python / FastAPI | FastAPI routes (`@app.get`, `@router.post`, `api_route`, `websocket`), `APIRouter(prefix=)` + `include_router(prefix=)`, `Depends`/`Security` | ~200 APIs: COMMAND (subprocess, os.system/popen, asyncio subprocess, python-nmap), SSRF (requests, httpx, aiohttp, urllib), PATH (open, pathlib, FileResponse, shutil), SQL (string-built `execute`, `sqlalchemy.text`), DESERIALIZATION (pickle, yaml.load, marshal…), code injection, XXE, redirect, XSS, weak crypto/random | name-resolved through the import table (absolute and relative imports, `self.`, `var = Call()`, `with … as`) |
+
+Python notes:
+- Parsed with [tree-sitter](https://tree-sitter.github.io/) through the [tree-sitter-ng](https://github.com/bonede/tree-sitter-ng) JNI binding (MIT). Files with syntax errors are still analyzed; the broken part is skipped and reported in `parseErrors`.
+- Native libraries ship inside the jar for Linux x64/arm64, macOS x64/arm64 and Windows x64 (checked in CI with Java 17). **Windows on ARM is not supported**: Python files are skipped there with a message in `parseErrors`.
+- Calls whose arguments are all constants (`open("config.json")`, `subprocess.run(["uptime"])`, `yaml.load(f, Loader=SafeLoader)`) are not sinks. SQL is flagged when the query string is built (f-string, `%`, `.format`, `+`) and passed to `execute`-like methods, because the driver type is usually unknown statically.
+- Test code (`tests/`, `test_*.py`, `*_test.py`, `conftest.py`) and virtualenv/cache folders are skipped. No type inference: parameters of unknown type are not followed.
 
 ## Progress
 
 | Step | Description | Status |
 |---|---|---|
 | 1 | Extract the engine from be-code-agent and mcp-code-agent into this library (no behavior change) | ✅ Done |
-| 2 | Language plugins (`LanguageParser`), Python/FastAPI parser | ⏳ Planned |
+| 2 | Language plugins (`LanguageParser`), language detection, Python/FastAPI parser (tree-sitter) | ✅ Done (v0.2.0) |
 | 3 | TypeScript backend parser on the same plugin interface | ⏳ Planned |
 
 ## Development
@@ -101,12 +109,15 @@ Node props shared with both servers: sinks have `category`, `cwe`, `api`, `metho
 
 ```
 src/main/java/com/codeagent/core/
-├── CodeGraphEngine.java      entry point
+├── CodeGraphEngine.java      entry point, language detection
+├── LanguageParser.java       per-language parser interface
+├── SourceFiles.java          source file discovery (skips build/venv folders, symlinks)
 ├── model/                    CodeNodeKind, CodeEdgeKind, CodeGraphDraft (output model)
-├── rules/                    SinkRule, SinkRules
-├── java/                     JavaProject, TypeResolver, EntryPointDetector, CodeGraphBuilder
-└── frontend/                 FrontendScanner (JS/TS/Vue/HTML)
-src/test/                     unit tests and sample apps (vulnerable-app, idor-app, owasp-app)
+├── rules/                    SinkRule, SinkRules (Java), PythonSinkRules
+├── java/                     JavaLanguage, JavaProject, TypeResolver, EntryPointDetector, CodeGraphBuilder
+├── python/                   PythonLanguage (tree-sitter), PythonModule (imports, definitions), PythonGraphBuilder (FastAPI, calls, sinks)
+└── frontend/                 FrontendGraph, FrontendScanner (JS/TS/Vue/HTML)
+src/test/                     unit tests and sample apps (vulnerable-app, idor-app, owasp-app, fastapi-app)
 docs/design.md                design notes (Korean)
 ```
 
@@ -143,20 +154,22 @@ Apache-2.0. Ideas from ARTEX were used as reference only; no code or prompts wer
 ```java
 CodeGraphEngine.Result result = CodeGraphEngine.analyze(Path.of("/path/to/repo"));
 CodeGraphDraft graph = result.draft();          // 노드와 연결선
-List<String> errors = result.parseErrors();      // 파싱하지 못한 파일
+List<String> errors = result.parseErrors();      // 파싱하지 못했거나 일부만 읽은 파일
+Set<String> languages = result.languages();      // 예: [java, javascript] 또는 [python]
 ```
 
 ## 공개 API
 
 | 타입 | 역할 |
 |---|---|
-| `CodeGraphEngine.analyze(Path)` | 입구. 저장소를 읽어 `Result(draft, parseErrors)` 를 돌려준다 |
+| `CodeGraphEngine.analyze(Path)` | 입구. 저장소의 언어를 확장자로 판별해 알맞은 파서만 돌리고 `Result(draft, parseErrors, languages)` 를 돌려준다 |
+| `LanguageParser` | 언어별 파서: `language()`, `detect(root)`, `contribute(root, draft, parseErrors)`. Java·Python·프론트엔드가 구현체 |
 | `model.CodeGraphDraft` | 저장 전 그래프. 노드는 (종류, 정규화된 이름)으로 식별하고 중복은 버린다 |
 | `model.CodeNodeKind` | `MODULE`, `FILE`, `CLASS`, `METHOD`, `ENTRY_POINT`, `SINK` |
 | `model.CodeEdgeKind` | `CONTAINS`, `CALLS`, `ROUTES_TO`, `OVERRIDDEN_BY` |
 | `rules.SinkRules` | 위험 지점 규칙과 분류 우선순위(`priority`, 조사 순서에 씀) |
 
-두 서버가 같이 쓰는 노드 props: 위험 지점은 `category`, `cwe`, `api`, `method`, `snippet`(JS/TS 는 `frontend=true`), 진입점은 `httpMethod`, `path`, `handler`.
+두 서버가 같이 쓰는 노드 props: 위험 지점은 `category`, `cwe`, `api`, `method`, `snippet`(JS/TS 는 `frontend=true`), 진입점은 `httpMethod`, `path`, `handler`. Python 노드는 `language=python` 이 붙고, 진입점은 `framework=fastapi` 와 `dependencies`(라우터에 건 것까지 포함한 `Depends(...)` 함수)가 더 있다. `language` 가 없으면 Java 다.
 
 ## 지원 언어
 
@@ -164,14 +177,20 @@ List<String> errors = result.parseErrors();      // 파싱하지 못한 파일
 |---|---|---|---|
 | Java / Spring | Spring MVC 매핑 | 규칙 54개 (SQL, 명령, 경로, SSRF, XXE, 역직렬화, XSS, 암호, IDOR 후보…) | 타입 해석 (import, 선언, symbol solver) |
 | JS / TS / Vue / HTML | – | 줄 단위 패턴 27개 (XSS, eval, 오픈 리다이렉트, 토큰 저장, 비밀값…) | – |
-| Python / FastAPI | 예정 | 예정 | 예정 |
+| Python / FastAPI | FastAPI 라우트(`@app.get`, `@router.post`, `api_route`, `websocket`), `APIRouter(prefix=)` + `include_router(prefix=)`, `Depends`/`Security` | 약 200개 API: COMMAND(subprocess, os.system/popen, asyncio subprocess, python-nmap), SSRF(requests, httpx, aiohttp, urllib), PATH(open, pathlib, FileResponse, shutil), SQL(문자열을 조립해 넘기는 `execute`, `sqlalchemy.text`), DESERIALIZATION(pickle, yaml.load, marshal…), 코드 실행, XXE, 리다이렉트, XSS, 약한 암호·난수 | import 표로 이름 해석 (절대·상대 import, `self.`, `변수 = 호출()`, `with … as`) |
+
+Python 참고:
+- [tree-sitter](https://tree-sitter.github.io/) 를 [tree-sitter-ng](https://github.com/bonede/tree-sitter-ng) JNI 바인딩(MIT)으로 쓴다. 문법 오류가 있는 파일도 오류 부분만 건너뛰고 분석하고 `parseErrors` 에 남긴다.
+- 네이티브 라이브러리는 jar 안에 Linux x64/arm64, macOS x64/arm64, Windows x64 용이 들어 있다(CI 에서 Java 17 로 확인). **Windows ARM 은 지원하지 않는다**: 그 환경에서는 파이썬 파일을 건너뛰고 `parseErrors` 에 이유를 남긴다.
+- 인자가 모두 상수인 호출(`open("config.json")`, `subprocess.run(["uptime"])`, `yaml.load(f, Loader=SafeLoader)`)은 위험 지점이 아니다. SQL 은 드라이버 타입을 정적으로 알기 어려워서, 쿼리 문자열을 조립(f-string, `%`, `.format`, `+`)해 `execute` 류에 넘기면 잡는다.
+- 테스트 코드(`tests/`, `test_*.py`, `*_test.py`, `conftest.py`)와 가상환경·캐시 폴더는 건너뛴다. 타입 추론은 하지 않아서 타입을 모르는 파라미터의 메서드 호출은 따라가지 않는다.
 
 ## 진행 상황
 
 | 단계 | 내용 | 상태 |
 |---|---|---|
 | 1 | be-code-agent·mcp-code-agent 의 엔진을 이 라이브러리로 추출 (동작 변화 없음) | ✅ 완료 |
-| 2 | 언어 플러그인(`LanguageParser`), Python/FastAPI 파서 | ⏳ 예정 |
+| 2 | 언어 플러그인(`LanguageParser`), 언어 자동 판별, Python/FastAPI 파서 (tree-sitter) | ✅ 완료 (v0.2.0) |
 | 3 | 같은 플러그인 구조로 TypeScript 백엔드 파서 | ⏳ 예정 |
 
 ## 개발
@@ -184,12 +203,15 @@ List<String> errors = result.parseErrors();      // 파싱하지 못한 파일
 
 ```
 src/main/java/com/codeagent/core/
-├── CodeGraphEngine.java      입구
+├── CodeGraphEngine.java      입구, 언어 판별
+├── LanguageParser.java       언어별 파서 인터페이스
+├── SourceFiles.java          소스 파일 찾기 (빌드·가상환경 폴더, 심볼릭 링크 제외)
 ├── model/                    CodeNodeKind, CodeEdgeKind, CodeGraphDraft (출력 모델)
-├── rules/                    SinkRule, SinkRules
-├── java/                     JavaProject, TypeResolver, EntryPointDetector, CodeGraphBuilder
-└── frontend/                 FrontendScanner (JS/TS/Vue/HTML)
-src/test/                     단위 테스트와 예제 앱 (vulnerable-app, idor-app, owasp-app)
+├── rules/                    SinkRule, SinkRules (Java), PythonSinkRules
+├── java/                     JavaLanguage, JavaProject, TypeResolver, EntryPointDetector, CodeGraphBuilder
+├── python/                   PythonLanguage (tree-sitter), PythonModule (import·정의 색인), PythonGraphBuilder (FastAPI, 호출, 위험 지점)
+└── frontend/                 FrontendGraph, FrontendScanner (JS/TS/Vue/HTML)
+src/test/                     단위 테스트와 예제 앱 (vulnerable-app, idor-app, owasp-app, fastapi-app)
 docs/design.md                설계 문서
 ```
 

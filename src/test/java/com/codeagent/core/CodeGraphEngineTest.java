@@ -26,5 +26,7 @@ class CodeGraphEngineTest {
         assertThat(result.draft().edges()).containsExactlyElementsOf(direct.edges());
         assertThat(result.draft().unresolvedCalls()).isEqualTo(direct.unresolvedCalls());
         assertThat(result.draft().count(CodeNodeKind.SINK)).isPositive();
+        // Java 백엔드 + 프론트엔드 폴더가 있는 저장소 (파이썬 파일 없음)
+        assertThat(result.languages()).containsExactly("java", "javascript");
     }
 }

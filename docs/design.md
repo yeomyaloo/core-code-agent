@@ -59,6 +59,25 @@ public interface LanguageParser {
   - 대안: ANTLR grammars-v4 Python 문법(순수 JVM, 오류에 약함). 파이썬 사이드카는 사용자 PC 에 Python 이 필요해서 제외.
 - 호출 해석: 모듈별 import 표(`import subprocess`, `from x import y as z`)로 `module.function` 을 정규화한 뒤 규칙과 맞춘다. 해석하지 못한 호출은 `unresolvedCalls` 로 센다.
 
-## 5. 다른 사본: phonetective (Sherlock Phones)
+## 5. 2단계 결과: Python 파서 (v0.2.0)
+
+시험 구현(spike) 결과 tree-sitter-ng 로 확정했다.
+
+| 확인 항목 | 결과 |
+|---|---|
+| 좌표 | `io.github.bonede:tree-sitter:0.26.6`, `tree-sitter-python:0.25.0` (MIT, Java 11 바이트코드) |
+| 네이티브 | jar 안에 Linux x64/arm64, macOS x64/arm64, Windows x64. **Windows arm64 없음** |
+| 실행 확인 | Java 17 로 Linux x64·arm64, macOS arm64, Windows x64 CI 통과. 로컬 Windows Java 17 실행 확인 |
+| 오류 내성 | 문법 오류 파일도 나머지 함수·호출을 그대로 읽음 |
+| 위치 | 한글이 섞인 소스에서도 UTF-8 바이트 기준 위치가 맞음 |
+
+구현:
+- `LanguageParser` 로 Java(`JavaLanguage`), Python(`PythonLanguage`), 프론트엔드(`FrontendGraph`)를 감쌌다. 엔진은 확장자로 언어를 판별해 해당 파서만 돌리고 `Result.languages` 로 알려준다. Java 저장소의 결과는 예전과 노드·연결선 순서까지 같다(`CodeGraphEngineTest`).
+- 이름 해석: 파일마다 import 표(절대·상대 import, 별칭)를 만들고, 호출 대상을 `subprocess.run`, `app.services.scanner.run_nmap` 같은 정규화 이름으로 바꾼다. 저장소 폴더 구조와 import 경로가 다를 수 있어 모듈은 이름 접미사로 찾는다. `self.`, `변수 = 호출()`, `with … as 변수` 만 따라가고 타입 추론은 하지 않는다.
+- FastAPI: 모듈 최상위의 `FastAPI()`/`APIRouter(prefix=…)` 를 라우터로 모으고 `include_router(prefix=…)` 를 합쳐 전체 경로를 만든다. 파라미터·데코레이터·라우터의 `Depends(...)` 는 진입점 props `dependencies` 에 남기고, 의존 함수는 핸들러가 부르는 것으로 본다(CALLS). 인증 누락 판단(Planner)에 쓸 수 있다.
+- 위험 지점: 인자가 모두 상수면 제외해 오탐을 줄였다. SQL 은 연결 객체 타입을 모르는 경우가 많아 "조립한 문자열을 execute 류에 넘김"으로 잡는다. python-nmap 의 `PortScanner.scan` 은 인자 주입(CWE-88)으로 분류했다.
+- 남은 한계(다음 개선 후보): 파라미터 타입 힌트로 객체 타입 추론, Flask/Django 진입점, 클래스 기반 의존성(`Depends(SomeClass)`), 데코레이터 기반 인증 표시.
+
+## 6. 다른 사본: phonetective (Sherlock Phones)
 
 `com.sherlockphones.codegraph` 는 mcp 엔진을 안드로이드용으로 바꾼 사본이다. EntryPointDetector 대신 Component/AppScan/LineScanner 가 있다. 하지만 `JavaProject`·`TypeResolver`·`CodeGraphDraft` 는 같은 계열이라, 진입점 탐지기와 규칙 세트를 주입하는 SPI 를 열면 나중에 이 엔진 위에 안드로이드 규칙만 얹는 형태로 옮길 수 있다(추측, 이번 범위 밖).
