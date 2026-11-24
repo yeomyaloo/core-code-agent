@@ -1,0 +1,62 @@
+plugins {
+	id 'java-library'
+	id 'maven-publish'
+}
+
+group = 'com.codeagent'
+version = '0.1.0'
+
+java {
+	toolchain {
+		languageVersion = JavaLanguageVersion.of(21)
+	}
+	withSourcesJar()
+}
+
+repositories {
+	mavenCentral()
+}
+
+dependencies {
+	// 공개 API(CodeGraphEngine, model, rules)는 JavaParser 타입을 드러내지 않지만
+	// java 패키지(JavaProject 등)를 쓰는 쪽을 위해 api 로 둔다
+	api 'com.github.javaparser:javaparser-symbol-solver-core:3.26.4'
+	implementation 'org.slf4j:slf4j-api:2.0.17'
+
+	testImplementation platform('org.junit:junit-bom:5.13.4')
+	testImplementation 'org.junit.jupiter:junit-jupiter'
+	testImplementation 'org.assertj:assertj-core:3.27.6'
+	testRuntimeOnly 'org.junit.platform:junit-platform-launcher'
+	testRuntimeOnly 'org.slf4j:slf4j-simple:2.0.17'
+}
+
+tasks.withType(JavaCompile).configureEach {
+	options.encoding = 'UTF-8'
+	// mcp 플러그인 서버가 Java 17 에서도 돌아야 하므로 엔진도 Java 17 로 컴파일한다
+	options.release = 17
+}
+
+tasks.named('test') {
+	useJUnitPlatform()
+	systemProperty 'file.encoding', 'UTF-8'
+}
+
+publishing {
+	publications {
+		maven(MavenPublication) {
+			artifactId = 'core-code-agent'
+			from components.java
+		}
+	}
+	repositories {
+		// ./gradlew publish : GitHub Packages 에 배포 (토큰은 gpr.user/gpr.key 또는 GITHUB_ACTOR/GITHUB_TOKEN)
+		maven {
+			name = 'GitHubPackages'
+			url = uri('https://maven.pkg.github.com/yeomyaloo/core-code-agent')
+			credentials {
+				username = providers.gradleProperty('gpr.user').orElse(providers.environmentVariable('GITHUB_ACTOR')).orNull
+				password = providers.gradleProperty('gpr.key').orElse(providers.environmentVariable('GITHUB_TOKEN')).orNull
+			}
+		}
+	}
+}
