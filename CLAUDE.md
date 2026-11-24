@@ -18,11 +18,16 @@ be-code-agent(Spring 서버)와 mcp-code-agent(MCP 서버)가 같이 쓰는 코�
 
 | 패키지 | 역할 |
 |---|---|
-| `com.codeagent.core` | `CodeGraphEngine.analyze(root)` 입구. 결과는 `Result(draft, parseErrors)` |
+| `com.codeagent.core` | `CodeGraphEngine.analyze(root)` 입구(언어 판별 후 `LanguageParser` 들을 차례로 실행). 결과는 `Result(draft, parseErrors, languages)`. `SourceFiles` 는 파일 찾기 |
 | `model` | `CodeNodeKind`, `CodeEdgeKind`, `CodeGraphDraft`(저장 전 그래프). 공개 출력 모델 |
-| `rules` | `SinkRule`, `SinkRules`(위험 지점 규칙, 분류 우선순위 `priority`/`CATEGORY_ORDER`) |
+| `rules` | `SinkRule`, `SinkRules`(Java 위험 지점 규칙, 분류 우선순위 `priority`/`CATEGORY_ORDER`), `PythonSinkRules`(정규화 이름 기준) |
 | `java` | Java/Spring: `JavaProject`(파싱·색인), `TypeResolver`, `EntryPointDetector`, `CodeGraphBuilder` |
-| `frontend` | `FrontendScanner`: JS/TS/Vue/HTML 줄 단위 정규식 위험 패턴 (비밀값은 snippet 에서 가린다) |
+| `python` | Python: `PythonLanguage`(tree-sitter 로 파싱, 네이티브 로드 실패 시 건너뜀), `PythonModule`(import·정의 색인), `PythonGraphBuilder`(FastAPI 진입점·Depends, 호출, 위험 지점) |
+| `frontend` | `FrontendGraph`(그래프에 더함), `FrontendScanner`: JS/TS/Vue/HTML 줄 단위 정규식 위험 패턴 (비밀값은 snippet 에서 가린다) |
+
+- 새 언어는 `LanguageParser` 를 구현하고 `CodeGraphEngine.defaultParsers()` 에 넣는다. 순서가 결과 노드 순서이므로 Java 저장소 결과가 바뀌지 않게 프론트엔드를 마지막에 둔다.
+- Python 은 tree-sitter-ng(JNI) 를 쓴다. 노드 위치는 UTF-8 바이트 기준이라 `PythonModule.text()` 로만 자른다. tree-sitter 노드는 트리가 살아 있을 때만 유효하므로 `PythonModule` 이 트리를 들고 있는다.
+- 네이티브 라이브러리 때문에 CI 는 OS·CPU 별(Linux x64/arm64, macOS arm64, Windows x64)로 Java 17 에서 테스트한다(`-PtestJavaVersion=17`).
 
 - be·mcp 는 `CodeGraphDraft` 를 각자 모델로 옮긴다(be: `CodeGraphIndexer` → DB, mcp: `CodeGraph` → 메모리 색인). 노드 kind 문자열과 props 키(`category`, `cwe`, `api`, `method`, `snippet`, `frontend`, `language`, `httpMethod`, `path`, `handler`)는 두 소비자가 그대로 쓰므로 바꾸면 양쪽을 같이 고친다. be 는 kind 를 DB 에 문자열로 저장한다.
 - 위험 지점 규칙을 바꾸면 be `BenchmarkSinkTest`, mcp `BenchmarkTest` 가 정답 목록과 정확히 같은지 본다. 두 저장소에서 확인한다.
