@@ -79,7 +79,13 @@ Node props shared with both servers: sinks have `category`, `cwe`, `api`, `metho
 |---|---|---|---|
 | Java / Spring | Spring MVC mappings | 54 rules (SQL, command, path, SSRF, XXE, deserialization, XSS, crypto, IDOR candidates…) | type-resolved (imports, declarations, symbol solver) |
 | JS / TS / Vue / HTML | – | 27 line-based patterns (XSS, eval, open redirect, token storage, secrets…) | – |
+| Kotlin | – (products plug in their own: Sherlock Phones wires exported Android components to Kotlin handlers) | the same Java rules (`SinkRules`), matched on Kotlin calls and constructor calls | name-resolved: imports and aliases, declared parameter/property/local types, `Foo(...)` constructor calls, `this`/`super`, companion functions, top-level functions (`FileNameKt`), optional known framework return types |
 | Python / FastAPI | FastAPI routes (`@app.get`, `@router.post`, `api_route`, `websocket`), `APIRouter(prefix=)` + `include_router(prefix=)`, `Depends`/`Security` | ~200 APIs: COMMAND (subprocess, os.system/popen, asyncio subprocess, python-nmap), SSRF (requests, httpx, aiohttp, urllib), PATH (open, pathlib, FileResponse, shutil), SQL (string-built `execute`, `sqlalchemy.text`), DESERIALIZATION (pickle, yaml.load, marshal…), code injection, XXE, redirect, XSS, weak crypto/random | name-resolved through the import table (absolute and relative imports, `self.`, `var = Call()`, `with … as`) |
+
+Kotlin notes:
+- Parsed with tree-sitter (`tree-sitter-kotlin`, MIT), same native-library platforms as Python. Nodes carry `language=kotlin`.
+- `KotlinProject` (index) and `KotlinGraphSupport` (structure, overrides, call linking, sinks) are public so a product can add its own entry points and rules, like `JavaGraphSupport`.
+- No type inference: values of unknown type (chained calls, lambdas, generics) are not followed. Calls in property initializers outside functions are not scanned yet. Java ↔ Kotlin calls are not linked yet.
 
 Python notes:
 - Parsed with [tree-sitter](https://tree-sitter.github.io/) through the [tree-sitter-ng](https://github.com/bonede/tree-sitter-ng) JNI binding (MIT). Files with syntax errors are still analyzed; the broken part is skipped and reported in `parseErrors`.
@@ -93,7 +99,8 @@ Python notes:
 |---|---|---|
 | 1 | Extract the engine from be-code-agent and mcp-code-agent into this library (no behavior change) | ✅ Done |
 | 2 | Language plugins (`LanguageParser`), language detection, Python/FastAPI parser (tree-sitter) | ✅ Done (v0.2.0) |
-| 2-1 | `JavaGraphSupport`: the rule-free Java building blocks as public API, so other products (Sherlock Phones for Android) reuse parsing and call linking instead of copying them. No change in be/mcp output | ✅ Done (v0.3.0) |
+| 2-2 | Kotlin parser (tree-sitter): structure, overrides, call linking, sinks with the Java rules; public `KotlinProject`/`KotlinGraphSupport` (Sherlock Phones uses them for Android) | ✅ Done (v0.4.0) |
+| 2-1 | `JavaGraphSupport`: Java building blocks as public API, so other products (Sherlock Phones for Android) reuse parsing and call linking instead of copying them. No change in be/mcp output | ✅ Done (v0.3.0) |
 | 3 | TypeScript backend parser on the same plugin interface | ⏳ Planned |
 
 ## Development
@@ -180,7 +187,13 @@ Set<String> languages = result.languages();      // 예: [java, javascript] 또�
 |---|---|---|---|
 | Java / Spring | Spring MVC 매핑 | 규칙 54개 (SQL, 명령, 경로, SSRF, XXE, 역직렬화, XSS, 암호, IDOR 후보…) | 타입 해석 (import, 선언, symbol solver) |
 | JS / TS / Vue / HTML | – | 줄 단위 패턴 27개 (XSS, eval, 오픈 리다이렉트, 토큰 저장, 비밀값…) | – |
+| Kotlin | – (제품이 직접 붙인다: Sherlock Phones 는 외부에 열린 안드로이드 컴포넌트를 Kotlin 핸들러로 잇는다) | Java 규칙(`SinkRules`)을 Kotlin 호출·생성자 호출에 그대로 적용 | 이름 해석: import·별칭, 파라미터·프로퍼티·지역 변수에 적힌 타입, `Foo(...)` 생성자 호출, `this`/`super`, companion 함수, 파일 최상위 함수(`파일이름Kt`), 넘겨받은 프레임워크 반환 타입 |
 | Python / FastAPI | FastAPI 라우트(`@app.get`, `@router.post`, `api_route`, `websocket`), `APIRouter(prefix=)` + `include_router(prefix=)`, `Depends`/`Security` | 약 200개 API: COMMAND(subprocess, os.system/popen, asyncio subprocess, python-nmap), SSRF(requests, httpx, aiohttp, urllib), PATH(open, pathlib, FileResponse, shutil), SQL(문자열을 조립해 넘기는 `execute`, `sqlalchemy.text`), DESERIALIZATION(pickle, yaml.load, marshal…), 코드 실행, XXE, 리다이렉트, XSS, 약한 암호·난수 | import 표로 이름 해석 (절대·상대 import, `self.`, `변수 = 호출()`, `with … as`) |
+
+Kotlin 참고:
+- tree-sitter(`tree-sitter-kotlin`, MIT)로 파싱한다. 네이티브 라이브러리 지원 플랫폼은 Python 과 같다. 노드에 `language=kotlin` 이 붙는다.
+- `KotlinProject`(색인)와 `KotlinGraphSupport`(구조, 상속, 호출 잇기, 위험 지점)는 공개라서 `JavaGraphSupport` 처럼 제품이 자기 진입점·규칙을 얹을 수 있다.
+- 타입 추론은 하지 않는다: 타입을 모르는 값(이어진 호출, 람다, 제네릭)은 따라가지 않는다. 함수 밖 프로퍼티 초기값의 호출은 아직 보지 않는다. Java ↔ Kotlin 호출은 아직 잇지 않는다.
 
 Python 참고:
 - [tree-sitter](https://tree-sitter.github.io/) 를 [tree-sitter-ng](https://github.com/bonede/tree-sitter-ng) JNI 바인딩(MIT)으로 쓴다. 문법 오류가 있는 파일도 오류 부분만 건너뛰고 분석하고 `parseErrors` 에 남긴다.
@@ -194,6 +207,7 @@ Python 참고:
 |---|---|---|
 | 1 | be-code-agent·mcp-code-agent 의 엔진을 이 라이브러리로 추출 (동작 변화 없음) | ✅ 완료 |
 | 2 | 언어 플러그인(`LanguageParser`), 언어 자동 판별, Python/FastAPI 파서 (tree-sitter) | ✅ 완료 (v0.2.0) |
+| 2-2 | Kotlin 파서(tree-sitter): 구조, 상속, 호출 잇기, Java 규칙으로 위험 지점. `KotlinProject`/`KotlinGraphSupport` 공개 (Sherlock Phones 가 안드로이드에 씀) | ✅ 완료 (v0.4.0) |
 | 2-1 | `JavaGraphSupport`: 규칙이 붙지 않은 Java 부품을 공개 API 로. 다른 제품(안드로이드용 Sherlock Phones)이 파싱·호출 연결을 복사하지 않고 쓴다. be·mcp 결과는 그대로 | ✅ 완료 (v0.3.0) |
 | 3 | 같은 플러그인 구조로 TypeScript 백엔드 파서 | ⏳ 예정 |
 

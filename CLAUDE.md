@@ -22,6 +22,7 @@ be-code-agent(Spring 서버)와 mcp-code-agent(MCP 서버)가 같이 쓰는 코�
 | `model` | `CodeNodeKind`, `CodeEdgeKind`, `CodeGraphDraft`(저장 전 그래프). 공개 출력 모델 |
 | `rules` | `SinkRule`, `SinkRules`(Java 위험 지점 규칙, 분류 우선순위 `priority`/`CATEGORY_ORDER`), `PythonSinkRules`(정규화 이름 기준) |
 | `java` | Java/Spring: `JavaProject`(파싱·색인), `TypeResolver`, `EntryPointDetector`, `CodeGraphBuilder`(Spring 진입점·규칙). `JavaGraphSupport` 는 규칙 없는 공용 부품(구조, 상속, 호출 대상 타입, 호출 잇기, 위험 지점 노드)이라 Spring 빌더와 Sherlock Phones 가 같이 쓴다 |
+| `kotlin` | Kotlin: `KotlinProject`(tree-sitter 로 파싱, import·타입·함수 색인), `KotlinGraphSupport`(구조, 상속, 호출 대상 타입, 호출 잇기, 위험 지점; 규칙은 쓰는 쪽이 넘긴다), `KotlinLanguage`(기본 파서: 서버 규칙 `SinkRules`) |
 | `python` | Python: `PythonLanguage`(tree-sitter 로 파싱, 네이티브 로드 실패 시 건너뜀), `PythonModule`(import·정의 색인), `PythonGraphBuilder`(FastAPI 진입점·Depends, 호출, 위험 지점) |
 | `frontend` | `FrontendGraph`(그래프에 더함), `FrontendScanner`: JS/TS/Vue/HTML 줄 단위 정규식 위험 패턴 (비밀값은 snippet 에서 가린다) |
 
