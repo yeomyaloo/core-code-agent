@@ -16,8 +16,9 @@
 | [cotcha-net](https://github.com/yeomyaloo/cotcha-net) | the bug-catching net | Server: Planner, Worker and Verifier agents sweep the code and double-check every catch (REST API, DB) |
 | [cotcha-pocket](https://github.com/yeomyaloo/cotcha-pocket) | the bug box in your pocket | Claude Code plugin / MCP server: run the audit right from chat |
 | [cotcha-jar](https://github.com/yeomyaloo/cotcha-jar) | the jar where caught bugs go | Web UI: paths, findings and approvals at a glance |
+| [cotcha-pinch](https://github.com/yeomyaloo/cotcha-pinch) | the touchscreen pinch, and catching a bug between two fingers | Mobile: Claude Code plugin / MCP server for Android (soon iOS) apps |
 
-The shared code graph engine behind [cotcha-net](https://github.com/yeomyaloo/cotcha-net) (Spring server with an agent loop) and [cotcha-pocket](https://github.com/yeomyaloo/cotcha-pocket) (MCP server / Claude Code plugin). [Sherlock Phones](https://github.com/yeomyaloo/sherlock-phones) (mobile app audits) builds its Android graph on the same Java building blocks.
+The shared code graph engine behind [cotcha-net](https://github.com/yeomyaloo/cotcha-net) (Spring server with an agent loop) and [cotcha-pocket](https://github.com/yeomyaloo/cotcha-pocket) (MCP server / Claude Code plugin). [cotcha-pinch](https://github.com/yeomyaloo/cotcha-pinch) (mobile app audits) builds its Android graph on the same Java building blocks.
 
 It parses source code statically (no build, no execution) and produces a code graph: files, classes, methods, HTTP entry points, sinks (risky API calls), and the edges between them. Both servers then search entry point → sink paths and let Claude investigate them. The engine itself uses no LLM, database or network.
 
@@ -86,7 +87,7 @@ Set<String> languages = result.languages();      // e.g. [java, javascript] or [
 | `model.CodeNodeKind` | `MODULE`, `FILE`, `CLASS`, `METHOD`, `ENTRY_POINT`, `SINK` |
 | `model.CodeEdgeKind` | `CONTAINS`, `CALLS`, `ROUTES_TO`, `OVERRIDDEN_BY` |
 | `rules.SinkRules` | Sink rules and category priority (`priority`) used to order investigations |
-| `java.JavaGraphSupport` | Java building blocks with no rules attached: structure (FILE → CLASS → METHOD), override edges, call target type resolution (with optional known framework return types such as `getIntent` → `android.content.Intent`), project call linking, sink nodes. The Spring `CodeGraphBuilder` uses it; other products plug in their own entry points and rules (Sherlock Phones: exported Android components, JS bridges, Android sinks) |
+| `java.JavaGraphSupport` | Java building blocks with no rules attached: structure (FILE → CLASS → METHOD), override edges, call target type resolution (with optional known framework return types such as `getIntent` → `android.content.Intent`), project call linking, sink nodes. The Spring `CodeGraphBuilder` uses it; other products plug in their own entry points and rules (cotcha-pinch: exported Android components, JS bridges, Android sinks) |
 
 Node props shared with both servers: sinks have `category`, `cwe`, `api`, `method`, `snippet` (and `frontend=true` for JS/TS); entry points have `httpMethod`, `path`, `handler`. Python nodes also carry `language=python`; entry points add `framework=fastapi` and `dependencies` (the `Depends(...)` functions, including router-level ones). Nodes without `language` are Java.
 
@@ -96,7 +97,7 @@ Node props shared with both servers: sinks have `category`, `cwe`, `api`, `metho
 |---|---|---|---|
 | Java / Spring | Spring MVC mappings | 54 rules (SQL, command, path, SSRF, XXE, deserialization, XSS, crypto, IDOR candidates…) | type-resolved (imports, declarations, symbol solver) |
 | JS / TS / Vue / HTML | – | 27 line-based patterns (XSS, eval, open redirect, token storage, secrets…) | – |
-| Kotlin | – (products plug in their own: Sherlock Phones wires exported Android components to Kotlin handlers) | the same Java rules (`SinkRules`), matched on Kotlin calls and constructor calls | name-resolved: imports and aliases, declared parameter/property/local types, `Foo(...)` constructor calls, `this`/`super`, companion functions, top-level functions (`FileNameKt`), optional known framework return types |
+| Kotlin | – (products plug in their own: cotcha-pinch wires exported Android components to Kotlin handlers) | the same Java rules (`SinkRules`), matched on Kotlin calls and constructor calls | name-resolved: imports and aliases, declared parameter/property/local types, `Foo(...)` constructor calls, `this`/`super`, companion functions, top-level functions (`FileNameKt`), optional known framework return types |
 | Python / FastAPI | FastAPI routes (`@app.get`, `@router.post`, `api_route`, `websocket`), `APIRouter(prefix=)` + `include_router(prefix=)`, `Depends`/`Security` | ~200 APIs: COMMAND (subprocess, os.system/popen, asyncio subprocess, python-nmap), SSRF (requests, httpx, aiohttp, urllib), PATH (open, pathlib, FileResponse, shutil), SQL (string-built `execute`, `sqlalchemy.text`), DESERIALIZATION (pickle, yaml.load, marshal…), code injection, XXE, redirect, XSS, weak crypto/random | name-resolved through the import table (absolute and relative imports, `self.`, `var = Call()`, `with … as`) |
 
 Kotlin notes:
@@ -116,8 +117,8 @@ Python notes:
 |---|---|---|
 | 1 | Extract the engine from cotcha-net and cotcha-pocket into this library (no behavior change) | ✅ Done |
 | 2 | Language plugins (`LanguageParser`), language detection, Python/FastAPI parser (tree-sitter) | ✅ Done (v0.2.0) |
-| 2-2 | Kotlin parser (tree-sitter): structure, overrides, call linking, sinks with the Java rules; public `KotlinProject`/`KotlinGraphSupport` (Sherlock Phones uses them for Android) | ✅ Done (v0.4.0) |
-| 2-1 | `JavaGraphSupport`: Java building blocks as public API, so other products (Sherlock Phones for Android) reuse parsing and call linking instead of copying them. No change in be/mcp output | ✅ Done (v0.3.0) |
+| 2-2 | Kotlin parser (tree-sitter): structure, overrides, call linking, sinks with the Java rules; public `KotlinProject`/`KotlinGraphSupport` (cotcha-pinch uses them for Android) | ✅ Done (v0.4.0) |
+| 2-1 | `JavaGraphSupport`: Java building blocks as public API, so other products (cotcha-pinch for Android) reuse parsing and call linking instead of copying them. No change in be/mcp output | ✅ Done (v0.3.0) |
 | 3 | TypeScript backend parser on the same plugin interface | ⏳ Planned |
 
 ## Development
@@ -164,8 +165,9 @@ Apache-2.0. Ideas from ARTEX were used as reference only; no code or prompts wer
 | [cotcha-net](https://github.com/yeomyaloo/cotcha-net) | 벌레 잡는 잠자리채 | 서버: Planner·Worker·Verifier 에이전트 팀이 코드를 훑고, 잡은 것을 다시 확인한다 (REST API, DB) |
 | [cotcha-pocket](https://github.com/yeomyaloo/cotcha-pocket) | 주머니 속 채집통 | Claude Code 플러그인 / MCP 서버: 채팅에서 바로 분석한다 |
 | [cotcha-jar](https://github.com/yeomyaloo/cotcha-jar) | 잡은 벌레를 모아 두는 유리병 | 웹 화면: 경로·발견·승인을 한눈에 본다 |
+| [cotcha-pinch](https://github.com/yeomyaloo/cotcha-pinch) | 화면을 집는 손가락 제스처, 손가락으로 벌레를 집어 잡기 | 모바일: 안드로이드(곧 iOS) 앱용 Claude Code 플러그인 / MCP 서버 |
 
-[cotcha-net](https://github.com/yeomyaloo/cotcha-net)(에이전트 루프가 있는 Spring 서버)와 [cotcha-pocket](https://github.com/yeomyaloo/cotcha-pocket)(MCP 서버 / Claude Code 플러그인)가 같이 쓰는 코드 그래프 엔진이다. 모바일 앱 검사 도구 [Sherlock Phones](https://github.com/yeomyaloo/sherlock-phones)도 같은 Java 부품 위에 안드로이드 그래프를 만든다.
+[cotcha-net](https://github.com/yeomyaloo/cotcha-net)(에이전트 루프가 있는 Spring 서버)와 [cotcha-pocket](https://github.com/yeomyaloo/cotcha-pocket)(MCP 서버 / Claude Code 플러그인)가 같이 쓰는 코드 그래프 엔진이다. 모바일 앱 검사 도구 [cotcha-pinch](https://github.com/yeomyaloo/cotcha-pinch)도 같은 Java 부품 위에 안드로이드 그래프를 만든다.
 
 소스코드를 정적으로 파싱해서(빌드·실행하지 않음) 파일·클래스·메서드·HTTP 진입점·위험 지점(위험한 API 호출)과 그 관계를 코드 그래프로 만든다. 두 서버는 이 그래프에서 진입점 → 위험 지점 경로를 찾아 Claude 가 조사하게 한다. 엔진 자체는 LLM·DB·네트워크를 쓰지 않는다.
 
@@ -204,7 +206,7 @@ Set<String> languages = result.languages();      // 예: [java, javascript] 또�
 | `model.CodeNodeKind` | `MODULE`, `FILE`, `CLASS`, `METHOD`, `ENTRY_POINT`, `SINK` |
 | `model.CodeEdgeKind` | `CONTAINS`, `CALLS`, `ROUTES_TO`, `OVERRIDDEN_BY` |
 | `rules.SinkRules` | 위험 지점 규칙과 분류 우선순위(`priority`, 조사 순서에 씀) |
-| `java.JavaGraphSupport` | 규칙이 붙지 않은 Java 부품: 구조(FILE → CLASS → METHOD), 상속 연결, 호출 대상 타입 알아내기(라이브러리 jar 없이 아는 프레임워크 반환 타입, 예: `getIntent` → `android.content.Intent`), 프로젝트 호출 잇기, 위험 지점 노드 만들기. Spring 용 `CodeGraphBuilder` 가 쓰고, 다른 제품은 자기 진입점·규칙만 얹는다(Sherlock Phones: 외부에 열린 안드로이드 컴포넌트, JS 브리지, 안드로이드 위험 지점) |
+| `java.JavaGraphSupport` | 규칙이 붙지 않은 Java 부품: 구조(FILE → CLASS → METHOD), 상속 연결, 호출 대상 타입 알아내기(라이브러리 jar 없이 아는 프레임워크 반환 타입, 예: `getIntent` → `android.content.Intent`), 프로젝트 호출 잇기, 위험 지점 노드 만들기. Spring 용 `CodeGraphBuilder` 가 쓰고, 다른 제품은 자기 진입점·규칙만 얹는다(cotcha-pinch: 외부에 열린 안드로이드 컴포넌트, JS 브리지, 안드로이드 위험 지점) |
 
 두 서버가 같이 쓰는 노드 props: 위험 지점은 `category`, `cwe`, `api`, `method`, `snippet`(JS/TS 는 `frontend=true`), 진입점은 `httpMethod`, `path`, `handler`. Python 노드는 `language=python` 이 붙고, 진입점은 `framework=fastapi` 와 `dependencies`(라우터에 건 것까지 포함한 `Depends(...)` 함수)가 더 있다. `language` 가 없으면 Java 다.
 
@@ -214,7 +216,7 @@ Set<String> languages = result.languages();      // 예: [java, javascript] 또�
 |---|---|---|---|
 | Java / Spring | Spring MVC 매핑 | 규칙 54개 (SQL, 명령, 경로, SSRF, XXE, 역직렬화, XSS, 암호, IDOR 후보…) | 타입 해석 (import, 선언, symbol solver) |
 | JS / TS / Vue / HTML | – | 줄 단위 패턴 27개 (XSS, eval, 오픈 리다이렉트, 토큰 저장, 비밀값…) | – |
-| Kotlin | – (제품이 직접 붙인다: Sherlock Phones 는 외부에 열린 안드로이드 컴포넌트를 Kotlin 핸들러로 잇는다) | Java 규칙(`SinkRules`)을 Kotlin 호출·생성자 호출에 그대로 적용 | 이름 해석: import·별칭, 파라미터·프로퍼티·지역 변수에 적힌 타입, `Foo(...)` 생성자 호출, `this`/`super`, companion 함수, 파일 최상위 함수(`파일이름Kt`), 넘겨받은 프레임워크 반환 타입 |
+| Kotlin | – (제품이 직접 붙인다: cotcha-pinch 는 외부에 열린 안드로이드 컴포넌트를 Kotlin 핸들러로 잇는다) | Java 규칙(`SinkRules`)을 Kotlin 호출·생성자 호출에 그대로 적용 | 이름 해석: import·별칭, 파라미터·프로퍼티·지역 변수에 적힌 타입, `Foo(...)` 생성자 호출, `this`/`super`, companion 함수, 파일 최상위 함수(`파일이름Kt`), 넘겨받은 프레임워크 반환 타입 |
 | Python / FastAPI | FastAPI 라우트(`@app.get`, `@router.post`, `api_route`, `websocket`), `APIRouter(prefix=)` + `include_router(prefix=)`, `Depends`/`Security` | 약 200개 API: COMMAND(subprocess, os.system/popen, asyncio subprocess, python-nmap), SSRF(requests, httpx, aiohttp, urllib), PATH(open, pathlib, FileResponse, shutil), SQL(문자열을 조립해 넘기는 `execute`, `sqlalchemy.text`), DESERIALIZATION(pickle, yaml.load, marshal…), 코드 실행, XXE, 리다이렉트, XSS, 약한 암호·난수 | import 표로 이름 해석 (절대·상대 import, `self.`, `변수 = 호출()`, `with … as`) |
 
 Kotlin 참고:
@@ -234,8 +236,8 @@ Python 참고:
 |---|---|---|
 | 1 | cotcha-net·cotcha-pocket 의 엔진을 이 라이브러리로 추출 (동작 변화 없음) | ✅ 완료 |
 | 2 | 언어 플러그인(`LanguageParser`), 언어 자동 판별, Python/FastAPI 파서 (tree-sitter) | ✅ 완료 (v0.2.0) |
-| 2-2 | Kotlin 파서(tree-sitter): 구조, 상속, 호출 잇기, Java 규칙으로 위험 지점. `KotlinProject`/`KotlinGraphSupport` 공개 (Sherlock Phones 가 안드로이드에 씀) | ✅ 완료 (v0.4.0) |
-| 2-1 | `JavaGraphSupport`: 규칙이 붙지 않은 Java 부품을 공개 API 로. 다른 제품(안드로이드용 Sherlock Phones)이 파싱·호출 연결을 복사하지 않고 쓴다. be·mcp 결과는 그대로 | ✅ 완료 (v0.3.0) |
+| 2-2 | Kotlin 파서(tree-sitter): 구조, 상속, 호출 잇기, Java 규칙으로 위험 지점. `KotlinProject`/`KotlinGraphSupport` 공개 (cotcha-pinch 가 안드로이드에 씀) | ✅ 완료 (v0.4.0) |
+| 2-1 | `JavaGraphSupport`: 규칙이 붙지 않은 Java 부품을 공개 API 로. 다른 제품(안드로이드용 cotcha-pinch)이 파싱·호출 연결을 복사하지 않고 쓴다. be·mcp 결과는 그대로 | ✅ 완료 (v0.3.0) |
 | 3 | 같은 플러그인 구조로 TypeScript 백엔드 파서 | ⏳ 예정 |
 
 ## 개발

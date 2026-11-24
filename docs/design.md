@@ -78,12 +78,12 @@ public interface LanguageParser {
 - 위험 지점: 인자가 모두 상수면 제외해 오탐을 줄였다. SQL 은 연결 객체 타입을 모르는 경우가 많아 "조립한 문자열을 execute 류에 넘김"으로 잡는다. python-nmap 의 `PortScanner.scan` 은 인자 주입(CWE-88)으로 분류했다.
 - 남은 한계(다음 개선 후보): 파라미터 타입 힌트로 객체 타입 추론, Flask/Django 진입점, 클래스 기반 의존성(`Depends(SomeClass)`), 데코레이터 기반 인증 표시.
 
-## 6. 다른 사본: phonetective (Sherlock Phones)
+## 6. 다른 사본: cotcha-pinch (예전 이름 Sherlock Phones, 로컬 폴더 phonetective)
 
 `com.sherlockphones.codegraph` 는 mcp 엔진을 안드로이드용으로 바꾼 사본이었다. EntryPointDetector 대신 Component/AppScan/LineScanner 가 있었고, `JavaProject`·`TypeResolver`·`CodeGraphDraft` 와 호출 연결 코드는 같았다.
 
 v0.3.0 에서 옮겼다:
 - core 의 Spring `CodeGraphBuilder` 에서 규칙과 상관없는 부분(구조, 상속 연결, 호출 대상 타입, 프로젝트 호출 잇기, 위험 지점 노드)을 공개 클래스 `JavaGraphSupport` 로 꺼냈다. Spring 빌더는 진입점 탐지와 규칙 판단만 남기고 이것을 쓴다. be·mcp 테스트를 새 core 소스(composite build)로 돌려 결과가 같음을 확인했다.
 - 프레임워크 메서드 반환 타입 표(`knownReturnTypes`)를 받게 했다. Spring 은 빈 표라서 동작이 같고, 안드로이드는 `getIntent` → `android.content.Intent` 같은 표를 넘긴다.
-- Sherlock Phones 는 `JavaProject`·`TypeResolver`·그래프 모델 사본을 지우고, 안드로이드 빌더(외부에 열린 컴포넌트·JS 브리지 진입점, 안드로이드 규칙, 아무 인증서나 믿는 TLS 구현, 줄 단위·설정 위험 지점)만 남겼다. 벤치마크 34곳은 옮기기 전과 같다.
+- cotcha-pinch 는 `JavaProject`·`TypeResolver`·그래프 모델 사본을 지우고, 안드로이드 빌더(외부에 열린 컴포넌트·JS 브리지 진입점, 안드로이드 규칙, 아무 인증서나 믿는 TLS 구현, 줄 단위·설정 위험 지점)만 남겼다. 벤치마크 34곳은 옮기기 전과 같다.
 - 다음: Kotlin·Swift 를 tree-sitter `LanguageParser` 로 core 에 더하면 서버(Kotlin Spring)와 모바일이 같이 쓴다.
