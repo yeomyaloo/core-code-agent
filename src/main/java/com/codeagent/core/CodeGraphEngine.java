@@ -2,6 +2,7 @@ package com.codeagent.core;
 
 import com.codeagent.core.frontend.FrontendGraph;
 import com.codeagent.core.java.JavaLanguage;
+import com.codeagent.core.kotlin.KotlinLanguage;
 import com.codeagent.core.model.CodeGraphDraft;
 import com.codeagent.core.python.PythonLanguage;
 
@@ -35,7 +36,7 @@ public final class CodeGraphEngine {
 
     /** 기본 파서. 순서대로 그래프에 더한다 (Java 저장소의 결과가 예전과 같도록 프론트엔드가 마지막) */
     public static List<LanguageParser> defaultParsers() {
-        return List.of(new JavaLanguage(), new PythonLanguage(), new FrontendGraph());
+        return List.of(new JavaLanguage(), new PythonLanguage(), new KotlinLanguage(), new FrontendGraph());
     }
 
     /** 저장소 루트를 읽어 코드 그래프를 만든다. 분석 대상 코드는 읽기만 한다. */

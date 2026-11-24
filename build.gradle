@@ -25,6 +25,7 @@ dependencies {
 	// Python 파싱 (tree-sitter JNI 바인딩, 네이티브 라이브러리는 jar 안에 OS별로 들어 있음. MIT)
 	implementation 'io.github.bonede:tree-sitter:0.26.6'
 	implementation 'io.github.bonede:tree-sitter-python:0.25.0'
+	implementation 'io.github.bonede:tree-sitter-kotlin:0.3.8.1'
 
 	testImplementation platform('org.junit:junit-bom:5.13.4')
 	testImplementation 'org.junit.jupiter:junit-jupiter'
