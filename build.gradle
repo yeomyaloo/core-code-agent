@@ -4,7 +4,7 @@ plugins {
 }
 
 group = 'com.codeagent'
-version = '0.5.0'
+version = '0.6.0'
 
 java {
 	toolchain {
@@ -27,7 +27,9 @@ dependencies {
 	implementation 'io.github.bonede:tree-sitter-python:0.25.0'
 	// Kotlin 파싱 (같은 tree-sitter 바인딩, MIT)
 	implementation 'io.github.bonede:tree-sitter-kotlin:0.3.8.1'
+	// Swift·Objective-C 파싱 (모바일 제품용, 기본 파서에는 없음. MIT)
 	implementation 'io.github.bonede:tree-sitter-swift:0.5.0'
+	implementation 'io.github.bonede:tree-sitter-objc:main-a'
 
 	testImplementation platform('org.junit:junit-bom:5.13.4')
 	testImplementation 'org.junit.jupiter:junit-jupiter'
