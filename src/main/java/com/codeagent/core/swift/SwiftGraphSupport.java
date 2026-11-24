@@ -37,6 +37,18 @@ public final class SwiftGraphSupport {
     private final SwiftProject project;
     private final CodeGraphDraft draft;
     private final Map<String, String> knownReturnTypes;
+    private ForeignCalls foreign = (type, name, labels) -> Optional.empty();
+
+    /** 프로젝트 안 다른 언어(Objective-C)의 메서드를 찾는다. 찾으면 그 메서드의 그래프 키 */
+    @FunctionalInterface
+    public interface ForeignCalls {
+        Optional<String> find(String type, String name, List<String> labels);
+
+        /** 그 메서드의 반환 타입 (LegacyStore.shared() → LegacyStore) */
+        default Optional<String> returnType(String type, String name, List<String> labels) {
+            return Optional.empty();
+        }
+    }
 
     /**
      * @param knownReturnTypes 프레임워크 프로퍼티·메서드 이름 → 타입 (예: url → URL). 소스 없이 타입을 알아야 할 때만
@@ -45,6 +57,11 @@ public final class SwiftGraphSupport {
         this.project = project;
         this.draft = draft;
         this.knownReturnTypes = Map.copyOf(knownReturnTypes);
+    }
+
+    /** Swift 프로젝트 밖 타입을 부를 때 물어볼 곳 ({@link com.codeagent.core.interop.SwiftObjcInterop}) */
+    public void foreignCalls(ForeignCalls foreign) {
+        this.foreign = foreign;
     }
 
     // ---- 구조 ----
@@ -108,6 +125,11 @@ public final class SwiftGraphSupport {
                         inits.forEach(t -> draft.addEdge(methodKey(function), methodKey(t), CodeEdgeKind.CALLS));
                         continue;
                     }
+                    Optional<String> objcInit = foreign.find(name, "init", argumentLabels(file, call));
+                    if (objcInit.isPresent()) {
+                        draft.addEdge(methodKey(function), objcInit.get(), CodeEdgeKind.CALLS);
+                        continue;
+                    }
                     Optional<SinkRule> rule = rules.apply(name, "init");
                     if (rule.isPresent()) {
                         addSink(function, call, rule.get(), rule.get().api("init"), extraProps);
@@ -133,6 +155,13 @@ public final class SwiftGraphSupport {
                 List<SwiftFunction> targets = project.findFunctions(targetType, method, args);
                 if (!targets.isEmpty()) {
                     targets.forEach(t -> draft.addEdge(methodKey(function), methodKey(t), CodeEdgeKind.CALLS));
+                    continue;
+                }
+            }
+            if (targetType != null) {
+                Optional<String> objcMethod = foreign.find(targetType, method, argumentLabels(file, call));
+                if (objcMethod.isPresent()) {
+                    draft.addEdge(methodKey(function), objcMethod.get(), CodeEdgeKind.CALLS);
                     continue;
                 }
             }
@@ -228,6 +257,17 @@ public final class SwiftGraphSupport {
                     return constructed;
                 }
                 TSNode callee = namedChildren(expr).isEmpty() ? null : namedChildren(expr).get(0);
+                if (callee != null && callee.getType().equals("navigation_expression")) {
+                    // 프로젝트 함수나 다른 언어(Objective-C) 메서드의 반환 타입
+                    String method = suffixName(file, callee);
+                    String owner = typeOf(field(callee, "target"), context, locals);
+                    if (owner != null && method != null) {
+                        Optional<String> returned = foreign.returnType(owner, method, argumentLabels(file, expr));
+                        if (returned.isPresent()) {
+                            return returned.get();
+                        }
+                    }
+                }
                 String called = callee == null ? null
                         : callee.getType().equals("navigation_expression") ? suffixName(file, callee)
                         : callee.getType().equals("simple_identifier") ? file.text(callee) : null;

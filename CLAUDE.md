@@ -25,6 +25,7 @@ cotcha-net(Spring 서버)와 cotcha-pocket(MCP 서버)가 같이 쓰는 코드 �
 | `kotlin` | Kotlin: `KotlinProject`(tree-sitter 로 파싱, import·타입·함수 색인), `KotlinGraphSupport`(구조, 상속, 호출 대상 타입, 호출 잇기, 위험 지점; 규칙은 쓰는 쪽이 넘긴다), `KotlinLanguage`(기본 파서: 서버 규칙 `SinkRules`) |
 | `swift` | Swift: `SwiftProject`(tree-sitter, 타입·extension·함수 색인, 함수 이름 `Type#name(label:)`), `SwiftGraphSupport`(구조, 상속, 호출 잇기, 위험 지점; C 함수는 타입 "" 으로 묻는다). 기본 파서에 넣지 않는다 (모바일 전용) |
 | `objc` | Objective-C: `ObjcProject`(tree-sitter, .m·.mm·@interface 있는 .h, 헤더·구현·카테고리를 클래스 하나로, 메서드 이름 `Type#selector:`), `ObjcGraphSupport`(메시지·C 함수 호출 잇기, 위험 지점; 규칙은 (타입, 셀렉터), C 함수는 타입 ""). 기본 파서에 넣지 않는다 (모바일 전용). 문법이 괄호에도 type 필드를 달아서 타입은 이름 있는 자식에서 고른다 |
+| `interop` | `SwiftObjcInterop`: Swift ↔ Objective-C 호출 잇기. 셀렉터 ↔ Swift 이름 변환(deletePayee: ↔ deletePayee(_:), initWithName: ↔ init(name:), storeWithToken: ↔ store(token:)). `SwiftGraphSupport.foreignCalls`·`ObjcGraphSupport.foreignCalls` 에 단다 |
 | `python` | Python: `PythonLanguage`(tree-sitter 로 파싱, 네이티브 로드 실패 시 건너뜀), `PythonModule`(import·정의 색인), `PythonGraphBuilder`(FastAPI 진입점·Depends, 호출, 위험 지점) |
 | `frontend` | `FrontendGraph`(그래프에 더함), `FrontendScanner`: JS/TS/Vue/HTML 줄 단위 정규식 위험 패턴 (비밀값은 snippet 에서 가린다) |
 

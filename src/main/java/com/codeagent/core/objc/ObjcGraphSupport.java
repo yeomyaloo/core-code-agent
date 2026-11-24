@@ -36,10 +36,19 @@ public final class ObjcGraphSupport {
 
     private final ObjcProject project;
     private final CodeGraphDraft draft;
+    private BiFunction<String, String, Optional<String>> foreign = (type, selector) -> Optional.empty();
 
     public ObjcGraphSupport(ObjcProject project, CodeGraphDraft draft) {
         this.project = project;
         this.draft = draft;
+    }
+
+    /**
+     * 프로젝트 안 다른 언어(Swift)의 메서드를 찾을 곳 ({@link com.codeagent.core.interop.SwiftObjcInterop}).
+     * (받는 쪽 타입, 셀렉터) → 그 메서드의 그래프 키
+     */
+    public void foreignCalls(BiFunction<String, String, Optional<String>> foreign) {
+        this.foreign = foreign;
     }
 
     // ---- 구조 ----
@@ -107,6 +116,13 @@ public final class ObjcGraphSupport {
                 Optional<ObjcMethod> target = project.findMethod(receiverType, selector);
                 if (target.isPresent()) {
                     draft.addEdge(methodKey(method), methodKey(target.get()), CodeEdgeKind.CALLS);
+                    continue;
+                }
+            }
+            if (receiverType != null) {
+                Optional<String> swiftFunction = foreign.apply(receiverType, selector);
+                if (swiftFunction.isPresent()) {
+                    draft.addEdge(methodKey(method), swiftFunction.get(), CodeEdgeKind.CALLS);
                     continue;
                 }
             }

@@ -71,7 +71,7 @@ repositories {
 }
 
 dependencies {
-    implementation 'com.codeagent:core-code-agent:0.6.0'   // bump the number to upgrade
+    implementation 'com.codeagent:core-code-agent:0.7.0'   // bump the number to upgrade
 }
 ```
 
@@ -103,10 +103,10 @@ Only the shared engine was pulled out, because a Spring Boot application cannot 
 ```
 cotcha-trail                                         consumers
 bump version in build.gradle
-git tag v0.6.0 && git push origin v0.6.0
+git tag v0.7.0 && git push origin v0.7.0
    │ GitHub Actions: tests on 4 OSes, then ./gradlew publish
    ▼
-GitHub Packages  com.codeagent:core-code-agent:0.6.0  ◀── implementation '…:0.6.0'
+GitHub Packages  com.codeagent:core-code-agent:0.7.0  ◀── implementation '…:0.7.0'
                                                           Gradle downloads it at build time
 ```
 
@@ -174,6 +174,7 @@ Kotlin notes:
 - `KotlinProject` (index) and `KotlinGraphSupport` (structure, overrides, call linking, sinks) are public so a product can add its own entry points and rules, like `JavaGraphSupport`.
 - `SwiftProject` and `SwiftGraphSupport` do the same for Swift (tree-sitter): classes, structs, enums, protocols and extensions (merged into the extended type), functions keyed Swift-style as `Type#name(label:label:)`, overrides, call linking through declared types, constructors and singletons (`UserDefaults.standard`), and sinks. Swift is not in the default parsers, so the server's analysis is unchanged.
 - `ObjcProject` and `ObjcGraphSupport` do the same for Objective-C (tree-sitter): `@interface` in headers and `@implementation` / categories in `.m` files merge into one class, methods are keyed by selector (`AppDelegate#application:openURL:options:`), and messages (`[receiver selector:arg]`) and C function calls are linked through declared types, `alloc`/`init`, `instancetype` returns and class singletons (`[NSUserDefaults standardUserDefaults]`). Also not in the default parsers.
+- `SwiftObjcInterop` links calls across the two languages in one app with the compiler's naming rules: Swift `db.deletePayee(name)` → `-deletePayee:`, `PayeeDatabase(name:)` → `-initWithName:`, and Objective-C `[vault storeWithToken:x]` → Swift `store(token:)`. `connect(swiftSupport, objcSupport)` wires both directions, including Objective-C return types for Swift (`LegacyStore.shared().save(…)`). Explicit `@objc(name)` / `NS_SWIFT_NAME` renames and omitted needless words are not followed.
 - No type inference: values of unknown type (chained calls, lambdas, generics) are not followed. Calls in property initializers outside functions are not scanned yet. Java ↔ Kotlin calls are not linked yet.
 
 Python notes:
@@ -191,6 +192,7 @@ Python notes:
 | 2-2 | Kotlin parser (tree-sitter): structure, overrides, call linking, sinks with the Java rules; public `KotlinProject`/`KotlinGraphSupport` (cotcha-pinch uses them for Android) | ✅ Done (v0.4.0) |
 | 2-3 | Swift parser (tree-sitter): public `SwiftProject`/`SwiftGraphSupport` for iOS call paths (cotcha-pinch); not in the default parsers | ✅ Done (v0.5.0) |
 | 2-4 | Objective-C parser (tree-sitter): public `ObjcProject`/`ObjcGraphSupport`, selectors, headers + implementations + categories; not in the default parsers | ✅ Done (v0.6.0) |
+| 2-5 | Swift ↔ Objective-C call links (`SwiftObjcInterop`) | ✅ Done (v0.7.0) |
 | 2-1 | `JavaGraphSupport`: Java building blocks as public API, so other products (cotcha-pinch for Android) reuse parsing and call linking instead of copying them. No change in be/mcp output | ✅ Done (v0.3.0) |
 | 3 | TypeScript backend parser on the same plugin interface | ⏳ Planned |
 
@@ -288,10 +290,10 @@ cotcha-trail  [엔진, 라이브러리]  <── 의존 ── cotcha-net     [S
 ```
 cotcha-trail                                         쓰는 쪽
 build.gradle 의 version 올리기
-git tag v0.6.0 && git push origin v0.6.0
+git tag v0.7.0 && git push origin v0.7.0
    │ GitHub Actions: 4개 OS 테스트 → ./gradlew publish
    ▼
-GitHub Packages  com.codeagent:core-code-agent:0.6.0  ◀── implementation '…:0.6.0'
+GitHub Packages  com.codeagent:core-code-agent:0.7.0  ◀── implementation '…:0.7.0'
                                                           빌드할 때 Gradle 이 받아 옴
 ```
 
@@ -359,6 +361,7 @@ Kotlin 참고:
 - `KotlinProject`(색인)와 `KotlinGraphSupport`(구조, 상속, 호출 잇기, 위험 지점)는 공개라서 `JavaGraphSupport` 처럼 제품이 자기 진입점·규칙을 얹을 수 있다.
 - `SwiftProject`·`SwiftGraphSupport` 는 Swift(tree-sitter) 판이다. class·struct·enum·protocol·extension(원래 타입에 합침), `Type#name(label:label:)` 꼴 함수 이름, 상속, 적힌 타입·생성자·싱글턴(`UserDefaults.standard`)으로 호출 잇기, 위험 지점. 기본 파서에는 넣지 않아서 서버 분석은 그대로다.
 - `ObjcProject`·`ObjcGraphSupport` 는 Objective-C(tree-sitter) 판이다. 헤더의 `@interface` 와 `.m` 의 `@implementation`·카테고리를 클래스 하나로 합치고, 메서드는 셀렉터(`AppDelegate#application:openURL:options:`)로 부른다. 메시지(`[받는쪽 셀렉터:인자]`)와 C 함수 호출을 적힌 타입, `alloc`/`init`, `instancetype` 반환, 클래스 싱글턴(`[NSUserDefaults standardUserDefaults]`)으로 잇는다. 이것도 기본 파서에는 넣지 않는다.
+- `SwiftObjcInterop` 은 한 앱 안의 두 언어 사이 호출을 컴파일러 이름 규칙대로 잇는다: Swift `db.deletePayee(name)` → `-deletePayee:`, `PayeeDatabase(name:)` → `-initWithName:`, Objective-C `[vault storeWithToken:x]` → Swift `store(token:)`. `connect(swiftSupport, objcSupport)` 가 양쪽을 다 달고, Swift 쪽에 Objective-C 반환 타입도 알려 준다(`LegacyStore.shared().save(…)`). 직접 적은 `@objc(이름)`·`NS_SWIFT_NAME`, 필요 없는 단어 빼기는 따르지 않는다.
 - 타입 추론은 하지 않는다: 타입을 모르는 값(이어진 호출, 람다, 제네릭)은 따라가지 않는다. 함수 밖 프로퍼티 초기값의 호출은 아직 보지 않는다. Java ↔ Kotlin 호출은 아직 잇지 않는다.
 
 Python 참고:
@@ -376,6 +379,7 @@ Python 참고:
 | 2-2 | Kotlin 파서(tree-sitter): 구조, 상속, 호출 잇기, Java 규칙으로 위험 지점. `KotlinProject`/`KotlinGraphSupport` 공개 (cotcha-pinch 가 안드로이드에 씀) | ✅ 완료 (v0.4.0) |
 | 2-3 | Swift 파서(tree-sitter): iOS 호출 경로용 공개 `SwiftProject`/`SwiftGraphSupport` (cotcha-pinch). 기본 파서에는 넣지 않음 | ✅ 완료 (v0.5.0) |
 | 2-4 | Objective-C 파서(tree-sitter): 공개 `ObjcProject`/`ObjcGraphSupport`, 셀렉터 이름, 헤더·구현·카테고리 합치기. 기본 파서에는 넣지 않음 | ✅ 완료 (v0.6.0) |
+| 2-5 | Swift ↔ Objective-C 호출 연결 (`SwiftObjcInterop`) | ✅ 완료 (v0.7.0) |
 | 2-1 | `JavaGraphSupport`: 규칙이 붙지 않은 Java 부품을 공개 API 로. 다른 제품(안드로이드용 cotcha-pinch)이 파싱·호출 연결을 복사하지 않고 쓴다. be·mcp 결과는 그대로 | ✅ 완료 (v0.3.0) |
 | 3 | 같은 플러그인 구조로 TypeScript 백엔드 파서 | ⏳ 예정 |
 
