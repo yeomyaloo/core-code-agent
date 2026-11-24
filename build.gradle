@@ -62,7 +62,7 @@ publishing {
 		// ./gradlew publish : GitHub Packages 에 배포 (토큰은 gpr.user/gpr.key 또는 GITHUB_ACTOR/GITHUB_TOKEN)
 		maven {
 			name = 'GitHubPackages'
-			url = uri('https://maven.pkg.github.com/yeomyaloo/core-code-agent')
+			url = uri('https://maven.pkg.github.com/yeomyaloo/cotcha-trail')
 			credentials {
 				username = providers.gradleProperty('gpr.user').orElse(providers.environmentVariable('GITHUB_ACTOR')).orNull
 				password = providers.gradleProperty('gpr.key').orElse(providers.environmentVariable('GITHUB_TOKEN')).orNull
