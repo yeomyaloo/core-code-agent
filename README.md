@@ -7,6 +7,7 @@ It parses source code statically (no build, no execution) and produces a code gr
 ## Contents
 
 - [Why a separate library](#why-a-separate-library)
+- [How this library was built](#how-this-library-was-built)
 - [Usage](#usage)
 - [Public API](#public-api)
 - [Supported languages](#supported-languages)
@@ -18,6 +19,16 @@ It parses source code statically (no build, no execution) and produces a code gr
 ## Why a separate library
 
 The engine used to be copied into both servers with only the package name changed, so every rule fix had to be made twice. It now lives here once and is published as a versioned Maven artifact. Each server keeps only a thin adapter that moves the result into its own model (be: PostgreSQL, mcp: in-memory index). See [docs/design.md](docs/design.md) (Korean) for the comparison of sharing options and the plan for more languages.
+
+## How this library was built
+
+1. **Compare the two copies.** The engine lived in be-code-agent (`com.codeagent.codegraph.ingest`) and mcp-code-agent (`com.codeagent.mcp.codegraph`). After normalizing package names, a diff showed the logic was identical. The only differences were Java 17 vs 21 syntax (`get(0)` vs `getFirst()`) and logging (slf4j `LoggerFactory` vs Lombok `@Slf4j`), because mcp compiles to Java 17 bytecode.
+2. **Move, don't rewrite.** The mcp copy (already Java 17, no Lombok) was moved as is into packages split by role: `model` (output types), `rules` (sink rules), `java` (Java/Spring parsing), `frontend` (JS/TS scanner). Only package and import lines changed.
+3. **One entry point.** `CodeGraphEngine.analyze(root)` wraps the two calls both servers used to make (`JavaProject.load` → `CodeGraphBuilder.build`) and returns the graph plus parse errors.
+4. **Move the tests with the code.** be's engine unit tests (`CodeGraphBuilderTest`, `IdorSinkTest`, `OwaspSinkTest`) and their sample apps moved here, plus `CodeGraphEngineTest`, which checks that the facade gives exactly the same nodes and edges as calling the builder directly.
+5. **Gradle library build.** `java-library` + `maven-publish`, a JDK 21 toolchain with `release 17` bytecode, JavaParser as an `api` dependency.
+6. **Publish.** Pushing a `v*` tag runs `.github/workflows/test.yml`: tests, then `./gradlew publish` to GitHub Packages with the workflow's `GITHUB_TOKEN`.
+7. **Switch the consumers.** be and mcp deleted their copies, depend on `com.codeagent:core-code-agent`, and keep only an adapter (be: `CodeGraphIndexer` → PostgreSQL, mcp: `CodeGraph` → in-memory index). Their test results were the same before and after (mcp 27/27; be the same except the 15 tests that moved here), and both CI runs passed against the published package.
 
 ## Usage
 
@@ -125,6 +136,16 @@ Apache-2.0. Ideas from ARTEX were used as reference only; no code or prompts wer
 ## 왜 별도 라이브러리인가
 
 전에는 두 서버에 엔진이 패키지 이름만 다르게 복사돼 있어서 규칙 하나를 고칠 때마다 두 번 고쳐야 했다. 이제 엔진은 여기 한 곳에만 있고 버전이 붙은 Maven 아티팩트로 배포된다. 각 서버에는 결과를 자기 모델로 옮기는 얇은 어댑터만 남는다(be: PostgreSQL, mcp: 메모리 색인). 공유 방식 비교와 다른 언어 추가 계획은 [docs/design.md](docs/design.md)에 있다.
+
+## 이 라이브러리를 만든 과정
+
+1. **두 사본 비교.** 엔진은 be-code-agent(`com.codeagent.codegraph.ingest`)와 mcp-code-agent(`com.codeagent.mcp.codegraph`)에 있었다. 패키지 이름을 맞추고 diff 해 보니 로직은 완전히 같았다. 차이는 Java 17/21 문법(`get(0)` ↔ `getFirst()`)과 로그 선언(slf4j `LoggerFactory` ↔ Lombok `@Slf4j`)뿐이었다. mcp 가 Java 17 바이트코드로 빌드하기 때문이다.
+2. **다시 짜지 않고 옮기기.** 이미 Java 17·Lombok 없음인 mcp 사본을 그대로 옮기고, 역할별 패키지로 나눴다: `model`(출력 타입), `rules`(위험 지점 규칙), `java`(Java/Spring 파싱), `frontend`(JS/TS 스캐너). 바뀐 것은 package·import 줄뿐이다.
+3. **입구 하나.** 두 서버가 각자 부르던 `JavaProject.load` → `CodeGraphBuilder.build` 를 `CodeGraphEngine.analyze(root)` 하나로 묶고, 그래프와 파싱 오류를 같이 돌려준다.
+4. **테스트도 같이 옮기기.** be 의 엔진 단위 테스트(`CodeGraphBuilderTest`, `IdorSinkTest`, `OwaspSinkTest`)와 예제 앱을 옮겼다. 입구가 빌더를 직접 부른 것과 노드·연결선이 정확히 같은지 보는 `CodeGraphEngineTest` 를 더했다.
+5. **Gradle 라이브러리 빌드.** `java-library` + `maven-publish`, JDK 21 toolchain 에 바이트코드는 `release 17`, JavaParser 는 `api` 의존성.
+6. **배포.** `v*` 태그를 푸시하면 `.github/workflows/test.yml` 이 테스트 후 `./gradlew publish` 로 GitHub Packages 에 올린다(워크플로의 `GITHUB_TOKEN` 사용).
+7. **소비자 교체.** be·mcp 는 사본을 지우고 `com.codeagent:core-code-agent` 에 의존하며 어댑터만 남겼다(be: `CodeGraphIndexer` → PostgreSQL, mcp: `CodeGraph` → 메모리 색인). 테스트 결과는 교체 전후가 같았고(mcp 27/27, be 는 여기로 옮긴 15개를 빼면 같음), 배포된 패키지로 두 저장소 CI 가 모두 통과했다.
 
 ## 사용법
 
