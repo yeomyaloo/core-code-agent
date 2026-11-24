@@ -2,7 +2,7 @@
 
 ## 1. 배경: 두 사본의 상태 (추출 전, 2026-11)
 
-be-code-agent(`com.codeagent.codegraph.ingest`)와 mcp-code-agent(`com.codeagent.mcp.codegraph`)에 같은 엔진이 복사돼 있었다. 패키지 이름을 맞춰 비교한 결과:
+cotcha-net(`com.codeagent.codegraph.ingest`)와 cotcha-pocket(`com.codeagent.mcp.codegraph`)에 같은 엔진이 복사돼 있었다. 패키지 이름을 맞춰 비교한 결과:
 
 | 파일 | 차이 |
 |---|---|
@@ -21,7 +21,7 @@ be-code-agent(`com.codeagent.codegraph.ingest`)와 mcp-code-agent(`com.codeagent
 | (c) git submodule | 설정이 단순해 보임 | 소스를 늘 같이 빌드해야 하고 포인터 관리 실수가 잦음 |
 
 보완:
-- 로컬 개발: 소비 레포에서 `-PcoreCodeAgentDir=../core-code-agent` 를 주면 `includeBuild` 로 소스를 바로 대체한다(composite build). 의존 좌표 `com.codeagent:core-code-agent` 가 이 빌드로 바뀐다.
+- 로컬 개발: 소비 레포에서 `-PcoreCodeAgentDir=../cotcha-trail` 를 주면 `includeBuild` 로 소스를 바로 대체한다(composite build). 의존 좌표 `com.codeagent:core-code-agent` 가 이 빌드로 바뀐다.
 - be Docker 이미지: 빌드 안에서 토큰을 쓰지 않도록 태그(`CORE_CODE_AGENT_REF`)의 소스를 `ADD <git>` 으로 받아 composite build 로 묶는다(core 레포가 공개여야 함).
 - CI: be·mcp 워크플로는 `permissions: packages: read` 와 `GITHUB_TOKEN` 으로 받는다. 다른 레포의 패키지라서 core 패키지 설정의 "Manage Actions access" 에 be·mcp 레포를 추가해야 한다.
 

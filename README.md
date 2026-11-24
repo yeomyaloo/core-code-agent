@@ -1,6 +1,23 @@
-# core-code-agent
+<p align="center">
+  <picture>
+    <source media="(prefers-color-scheme: dark)" srcset="docs/images/cotcha-logo-dark.svg">
+    <img src="docs/images/cotcha-logo.svg" alt="Cotcha" width="260">
+  </picture>
+</p>
 
-The shared code graph engine behind [be-code-agent](https://github.com/yeomyaloo/be-code-agent) (Spring server with an agent loop) and [mcp-code-agent](https://github.com/yeomyaloo/mcp-code-agent) (MCP server / Claude Code plugin). [Sherlock Phones](https://github.com/yeomyaloo/sherlock-phones) (mobile app audits) builds its Android graph on the same Java building blocks.
+# cotcha-trail
+
+> **Cotcha** = *"Caught ya!"* Cotcha follows untrusted input from where it enters your code to where it can do damage, catches the security bugs on the way, and keeps them in a jar.
+> *Every bug ends up in the jar.*
+
+| Repository | The name means | Role |
+|---|---|---|
+| [cotcha-trail (this repo)](https://github.com/yeomyaloo/cotcha-trail) | the trail a bug leaves behind | Shared engine: parses code into a graph of entry points, sinks and the calls between them |
+| [cotcha-net](https://github.com/yeomyaloo/cotcha-net) | the bug-catching net | Server: Planner, Worker and Verifier agents sweep the code and double-check every catch (REST API, DB) |
+| [cotcha-pocket](https://github.com/yeomyaloo/cotcha-pocket) | the bug box in your pocket | Claude Code plugin / MCP server: run the audit right from chat |
+| [cotcha-jar](https://github.com/yeomyaloo/cotcha-jar) | the jar where caught bugs go | Web UI: paths, findings and approvals at a glance |
+
+The shared code graph engine behind [cotcha-net](https://github.com/yeomyaloo/cotcha-net) (Spring server with an agent loop) and [cotcha-pocket](https://github.com/yeomyaloo/cotcha-pocket) (MCP server / Claude Code plugin). [Sherlock Phones](https://github.com/yeomyaloo/sherlock-phones) (mobile app audits) builds its Android graph on the same Java building blocks.
 
 It parses source code statically (no build, no execution) and produces a code graph: files, classes, methods, HTTP entry points, sinks (risky API calls), and the edges between them. Both servers then search entry point → sink paths and let Claude investigate them. The engine itself uses no LLM, database or network.
 
@@ -22,7 +39,7 @@ The engine used to be copied into both servers with only the package name change
 
 ## How this library was built
 
-1. **Compare the two copies.** The engine lived in be-code-agent (`com.codeagent.codegraph.ingest`) and mcp-code-agent (`com.codeagent.mcp.codegraph`). After normalizing package names, a diff showed the logic was identical. The only differences were Java 17 vs 21 syntax (`get(0)` vs `getFirst()`) and logging (slf4j `LoggerFactory` vs Lombok `@Slf4j`), because mcp compiles to Java 17 bytecode.
+1. **Compare the two copies.** The engine lived in cotcha-net (`com.codeagent.codegraph.ingest`) and cotcha-pocket (`com.codeagent.mcp.codegraph`). After normalizing package names, a diff showed the logic was identical. The only differences were Java 17 vs 21 syntax (`get(0)` vs `getFirst()`) and logging (slf4j `LoggerFactory` vs Lombok `@Slf4j`), because mcp compiles to Java 17 bytecode.
 2. **Move, don't rewrite.** The mcp copy (already Java 17, no Lombok) was moved as is into packages split by role: `model` (output types), `rules` (sink rules), `java` (Java/Spring parsing), `frontend` (JS/TS scanner). Only package and import lines changed.
 3. **One entry point.** `CodeGraphEngine.analyze(root)` wraps the two calls both servers used to make (`JavaProject.load` → `CodeGraphBuilder.build`) and returns the graph plus parse errors.
 4. **Move the tests with the code.** be's engine unit tests (`CodeGraphBuilderTest`, `IdorSinkTest`, `OwaspSinkTest`) and their sample apps moved here, plus `CodeGraphEngineTest`, which checks that the facade gives exactly the same nodes and edges as calling the builder directly.
@@ -36,7 +53,7 @@ The engine used to be copied into both servers with only the package name change
 repositories {
     mavenCentral()
     maven {
-        url = uri('https://maven.pkg.github.com/yeomyaloo/core-code-agent')
+        url = uri('https://maven.pkg.github.com/yeomyaloo/cotcha-trail')
         credentials {   // GitHub Packages needs a token (read:packages) even for public packages
             username = providers.gradleProperty('gpr.user').orElse(providers.environmentVariable('GITHUB_ACTOR')).orNull
             password = providers.gradleProperty('gpr.key').orElse(providers.environmentVariable('GITHUB_TOKEN')).orNull
@@ -50,7 +67,7 @@ dependencies {
 }
 ```
 
-To build a consumer against a local checkout instead (no token), both servers accept `-PcoreCodeAgentDir=../core-code-agent`, which turns on a Gradle composite build.
+To build a consumer against a local checkout instead (no token), both servers accept `-PcoreCodeAgentDir=../cotcha-trail`, which turns on a Gradle composite build.
 
 ```java
 CodeGraphEngine.Result result = CodeGraphEngine.analyze(Path.of("/path/to/repo"));
@@ -97,7 +114,7 @@ Python notes:
 
 | Step | Description | Status |
 |---|---|---|
-| 1 | Extract the engine from be-code-agent and mcp-code-agent into this library (no behavior change) | ✅ Done |
+| 1 | Extract the engine from cotcha-net and cotcha-pocket into this library (no behavior change) | ✅ Done |
 | 2 | Language plugins (`LanguageParser`), language detection, Python/FastAPI parser (tree-sitter) | ✅ Done (v0.2.0) |
 | 2-2 | Kotlin parser (tree-sitter): structure, overrides, call linking, sinks with the Java rules; public `KotlinProject`/`KotlinGraphSupport` (Sherlock Phones uses them for Android) | ✅ Done (v0.4.0) |
 | 2-1 | `JavaGraphSupport`: Java building blocks as public API, so other products (Sherlock Phones for Android) reuse parsing and call linking instead of copying them. No change in be/mcp output | ✅ Done (v0.3.0) |
@@ -111,7 +128,7 @@ Python notes:
 ```
 
 - Built with a JDK 21 toolchain but compiled with `release 17`, because the MCP plugin server must run on Java 17. No Java 21-only APIs, no Lombok.
-- Release: bump `version` in `build.gradle`, push a `v{version}` tag. GitHub Actions runs the tests and publishes to GitHub Packages. Then bump the dependency in both servers (and `CORE_CODE_AGENT_REF` in be-code-agent's `Dockerfile`).
+- Release: bump `version` in `build.gradle`, push a `v{version}` tag. GitHub Actions runs the tests and publishes to GitHub Packages. Then bump the dependency in both servers (and `CORE_CODE_AGENT_REF` in cotcha-net's `Dockerfile`).
 - When you change sink rules, run both servers' benchmark tests (`BenchmarkSinkTest`, `BenchmarkTest`); they must still match the answer key exactly.
 
 ## Directory structure
@@ -136,9 +153,19 @@ Apache-2.0. Ideas from ARTEX were used as reference only; no code or prompts wer
 
 ---
 
-# core-code-agent (한국어)
+# cotcha-trail (한국어)
 
-[be-code-agent](https://github.com/yeomyaloo/be-code-agent)(에이전트 루프가 있는 Spring 서버)와 [mcp-code-agent](https://github.com/yeomyaloo/mcp-code-agent)(MCP 서버 / Claude Code 플러그인)가 같이 쓰는 코드 그래프 엔진이다. 모바일 앱 검사 도구 [Sherlock Phones](https://github.com/yeomyaloo/sherlock-phones)도 같은 Java 부품 위에 안드로이드 그래프를 만든다.
+> **Cotcha(코챠)** = *"Caught ya!"*(잡았다!)를 귀엽게 줄인 말. 외부 입력이 코드에 들어온 곳부터 위험한 곳까지 따라가며 보안 버그를 잡아 유리병에 담는다.
+> *Every bug ends up in the jar.* (잡은 버그는 전부 병 속으로)
+
+| 레포 | 이름 뜻 | 역할 |
+|---|---|---|
+| [cotcha-trail (이 레포)](https://github.com/yeomyaloo/cotcha-trail) | 벌레가 지나간 발자국 | 공용 엔진: 코드를 파싱해 진입점 → 위험 지점 경로(호출 그래프)를 그린다 |
+| [cotcha-net](https://github.com/yeomyaloo/cotcha-net) | 벌레 잡는 잠자리채 | 서버: Planner·Worker·Verifier 에이전트 팀이 코드를 훑고, 잡은 것을 다시 확인한다 (REST API, DB) |
+| [cotcha-pocket](https://github.com/yeomyaloo/cotcha-pocket) | 주머니 속 채집통 | Claude Code 플러그인 / MCP 서버: 채팅에서 바로 분석한다 |
+| [cotcha-jar](https://github.com/yeomyaloo/cotcha-jar) | 잡은 벌레를 모아 두는 유리병 | 웹 화면: 경로·발견·승인을 한눈에 본다 |
+
+[cotcha-net](https://github.com/yeomyaloo/cotcha-net)(에이전트 루프가 있는 Spring 서버)와 [cotcha-pocket](https://github.com/yeomyaloo/cotcha-pocket)(MCP 서버 / Claude Code 플러그인)가 같이 쓰는 코드 그래프 엔진이다. 모바일 앱 검사 도구 [Sherlock Phones](https://github.com/yeomyaloo/sherlock-phones)도 같은 Java 부품 위에 안드로이드 그래프를 만든다.
 
 소스코드를 정적으로 파싱해서(빌드·실행하지 않음) 파일·클래스·메서드·HTTP 진입점·위험 지점(위험한 API 호출)과 그 관계를 코드 그래프로 만든다. 두 서버는 이 그래프에서 진입점 → 위험 지점 경로를 찾아 Claude 가 조사하게 한다. 엔진 자체는 LLM·DB·네트워크를 쓰지 않는다.
 
@@ -148,7 +175,7 @@ Apache-2.0. Ideas from ARTEX were used as reference only; no code or prompts wer
 
 ## 이 라이브러리를 만든 과정
 
-1. **두 사본 비교.** 엔진은 be-code-agent(`com.codeagent.codegraph.ingest`)와 mcp-code-agent(`com.codeagent.mcp.codegraph`)에 있었다. 패키지 이름을 맞추고 diff 해 보니 로직은 완전히 같았다. 차이는 Java 17/21 문법(`get(0)` ↔ `getFirst()`)과 로그 선언(slf4j `LoggerFactory` ↔ Lombok `@Slf4j`)뿐이었다. mcp 가 Java 17 바이트코드로 빌드하기 때문이다.
+1. **두 사본 비교.** 엔진은 cotcha-net(`com.codeagent.codegraph.ingest`)와 cotcha-pocket(`com.codeagent.mcp.codegraph`)에 있었다. 패키지 이름을 맞추고 diff 해 보니 로직은 완전히 같았다. 차이는 Java 17/21 문법(`get(0)` ↔ `getFirst()`)과 로그 선언(slf4j `LoggerFactory` ↔ Lombok `@Slf4j`)뿐이었다. mcp 가 Java 17 바이트코드로 빌드하기 때문이다.
 2. **다시 짜지 않고 옮기기.** 이미 Java 17·Lombok 없음인 mcp 사본을 그대로 옮기고, 역할별 패키지로 나눴다: `model`(출력 타입), `rules`(위험 지점 규칙), `java`(Java/Spring 파싱), `frontend`(JS/TS 스캐너). 바뀐 것은 package·import 줄뿐이다.
 3. **입구 하나.** 두 서버가 각자 부르던 `JavaProject.load` → `CodeGraphBuilder.build` 를 `CodeGraphEngine.analyze(root)` 하나로 묶고, 그래프와 파싱 오류를 같이 돌려준다.
 4. **테스트도 같이 옮기기.** be 의 엔진 단위 테스트(`CodeGraphBuilderTest`, `IdorSinkTest`, `OwaspSinkTest`)와 예제 앱을 옮겼다. 입구가 빌더를 직접 부른 것과 노드·연결선이 정확히 같은지 보는 `CodeGraphEngineTest` 를 더했다.
@@ -158,7 +185,7 @@ Apache-2.0. Ideas from ARTEX were used as reference only; no code or prompts wer
 
 ## 사용법
 
-위 영어 절의 Gradle 설정을 그대로 쓴다. GitHub Packages 는 공개 패키지여도 읽을 때 토큰(`read:packages`)이 필요하다. `~/.gradle/gradle.properties` 에 `gpr.user`/`gpr.key` 를 두거나 `GITHUB_ACTOR`/`GITHUB_TOKEN` 환경 변수를 쓴다. 토큰 없이 로컬 소스로 빌드하려면 두 서버 모두 `-PcoreCodeAgentDir=../core-code-agent`(Gradle composite build)를 받는다.
+위 영어 절의 Gradle 설정을 그대로 쓴다. GitHub Packages 는 공개 패키지여도 읽을 때 토큰(`read:packages`)이 필요하다. `~/.gradle/gradle.properties` 에 `gpr.user`/`gpr.key` 를 두거나 `GITHUB_ACTOR`/`GITHUB_TOKEN` 환경 변수를 쓴다. 토큰 없이 로컬 소스로 빌드하려면 두 서버 모두 `-PcoreCodeAgentDir=../cotcha-trail`(Gradle composite build)를 받는다.
 
 ```java
 CodeGraphEngine.Result result = CodeGraphEngine.analyze(Path.of("/path/to/repo"));
@@ -205,7 +232,7 @@ Python 참고:
 
 | 단계 | 내용 | 상태 |
 |---|---|---|
-| 1 | be-code-agent·mcp-code-agent 의 엔진을 이 라이브러리로 추출 (동작 변화 없음) | ✅ 완료 |
+| 1 | cotcha-net·cotcha-pocket 의 엔진을 이 라이브러리로 추출 (동작 변화 없음) | ✅ 완료 |
 | 2 | 언어 플러그인(`LanguageParser`), 언어 자동 판별, Python/FastAPI 파서 (tree-sitter) | ✅ 완료 (v0.2.0) |
 | 2-2 | Kotlin 파서(tree-sitter): 구조, 상속, 호출 잇기, Java 규칙으로 위험 지점. `KotlinProject`/`KotlinGraphSupport` 공개 (Sherlock Phones 가 안드로이드에 씀) | ✅ 완료 (v0.4.0) |
 | 2-1 | `JavaGraphSupport`: 규칙이 붙지 않은 Java 부품을 공개 API 로. 다른 제품(안드로이드용 Sherlock Phones)이 파싱·호출 연결을 복사하지 않고 쓴다. be·mcp 결과는 그대로 | ✅ 완료 (v0.3.0) |
