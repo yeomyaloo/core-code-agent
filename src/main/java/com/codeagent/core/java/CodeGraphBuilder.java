@@ -32,6 +32,7 @@ public class CodeGraphBuilder {
 
     private final JavaProject project;
     private final EntryPointDetector entryPointDetector = new EntryPointDetector();
+    private final WebFluxRouteDetector routeDetector = new WebFluxRouteDetector();
     private final CodeGraphDraft draft;
     private final JavaGraphSupport support;
 
@@ -76,6 +77,17 @@ public class CodeGraphBuilder {
                             "path", entryPoint.path(),
                             "handler", handler.key())));
             draft.addEdge(entryKey, JavaGraphSupport.methodKey(handler), CodeEdgeKind.ROUTES_TO);
+        }
+        // WebFlux 함수형 라우터 (RouterFunction 을 돌려주는 메서드)
+        for (WebFluxRouteDetector.RouteEntry route : routeDetector.detect(project, support, type)) {
+            MethodInfo target = route.target();
+            String entryKey = draft.addNode(JavaGraphSupport.node(CodeNodeKind.ENTRY_POINT, route.qualifiedName(),
+                    target.owner().filePath(), target.decl(), Map.of(
+                            "httpMethod", route.httpMethod(),
+                            "path", route.path(),
+                            "handler", target.key(),
+                            "router", route.router().key())));
+            draft.addEdge(entryKey, JavaGraphSupport.methodKey(target), CodeEdgeKind.ROUTES_TO);
         }
     }
 

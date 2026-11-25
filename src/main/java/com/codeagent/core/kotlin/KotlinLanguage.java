@@ -52,6 +52,7 @@ public final class KotlinLanguage implements LanguageParser {
         project.types().forEach(support::addStructure);
         project.types().forEach(support::addOverrides);
         KotlinEntryPointDetector detector = new KotlinEntryPointDetector();
+        KotlinRouterDetector routerDetector = new KotlinRouterDetector();
         CodeGraphDraft draft = support.draft();
         for (KotlinProject.KotlinType type : project.types()) {
             for (KotlinEntryPointDetector.KotlinEntryPoint entry : detector.detect(project, type)) {
@@ -63,6 +64,18 @@ public final class KotlinLanguage implements LanguageParser {
                         "handler", handler.key(),
                         "language", "kotlin")));
                 draft.addEdge(entryKey, KotlinGraphSupport.methodKey(handler), CodeEdgeKind.ROUTES_TO);
+            }
+            // WebFlux 라우터 DSL (router { } / coRouter { })
+            for (KotlinRouterDetector.RouterEntry entry : routerDetector.detect(project, type)) {
+                KotlinProject.KotlinFunction target = entry.target();
+                String entryKey = draft.addNode(new CodeGraphDraft.NodeDraft(CodeNodeKind.ENTRY_POINT, entry.qualifiedName(),
+                        target.owner().filePath(), target.startLine(), target.endLine(), Map.of(
+                        "httpMethod", entry.httpMethod(),
+                        "path", entry.path(),
+                        "handler", target.key(),
+                        "router", entry.router().key(),
+                        "language", "kotlin")));
+                draft.addEdge(entryKey, KotlinGraphSupport.methodKey(target), CodeEdgeKind.ROUTES_TO);
             }
         }
         project.types().forEach(t -> t.functions().forEach(f -> support.addCalls(f, SinkRules::match, Map.of())));
