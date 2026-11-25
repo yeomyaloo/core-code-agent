@@ -95,6 +95,24 @@ public final class KotlinProject {
         }
     }
 
+    /**
+     * 애너테이션과 인자. 이름 없는 인자는 value 로 둔다. 문자열은 내용, 배열은 원소마다,
+     * 그 밖의 식(상수·열거값)은 ${RequestMethod.POST}, ${Paths.USERS} 처럼 감싼다
+     */
+    public record KotlinAnnotation(String name, Map<String, List<String>> arguments) {
+
+        public List<String> argument(String... names) {
+            List<String> values = new ArrayList<>();
+            for (String n : names) {
+                values.addAll(arguments.getOrDefault(n, List.of()));
+            }
+            return values;
+        }
+    }
+
+    /** 클래스 선언 노드 (애너테이션 인자를 읽을 때) */
+    private final Map<String, TSNode> typeNodes = new java.util.HashMap<>();
+
     private final Path root;
     private final List<KotlinFile> files = new ArrayList<>();
     private final Map<String, KotlinType> types = new LinkedHashMap<>();
@@ -344,6 +362,7 @@ public final class KotlinProject {
         KotlinType type = new KotlinType(fqn, simple, declaration, file, KotlinFile.line(decl), KotlinFile.endLine(decl),
                 List.copyOf(superTypes), new ArrayList<>(), new LinkedHashMap<>(), annotations(file, decl));
         types.put(fqn, type);
+        typeNodes.put(fqn, decl);
         // 주 생성자의 val/var 파라미터는 프로퍼티다
         TSNode primary = firstChild(decl, "primary_constructor");
         if (primary != null) {
@@ -450,10 +469,122 @@ public final class KotlinProject {
         return null;
     }
 
+    /** 클래스에 붙은 애너테이션과 인자 */
+    public List<KotlinAnnotation> annotationDetails(KotlinType type) {
+        TSNode decl = typeNodes.get(type.fqn());
+        return decl == null ? List.of() : annotationDetails(type.file(), decl);
+    }
+
+    /** 함수에 붙은 애너테이션과 인자 */
+    public List<KotlinAnnotation> annotationDetails(KotlinFunction function) {
+        return annotationDetails(function.owner().file(), function.node());
+    }
+
+    private List<KotlinAnnotation> annotationDetails(KotlinFile file, TSNode decl) {
+        List<KotlinAnnotation> result = new ArrayList<>();
+        for (AnnotationNode node : annotationNodes(decl)) {
+            TSNode annotation = node.annotation();
+            TSNode invocation = firstChild(annotation, "constructor_invocation");
+            TSNode userType = firstChild(invocation != null ? invocation : annotation, "user_type");
+            if (userType == null) {
+                continue;
+            }
+            Map<String, List<String>> arguments = new LinkedHashMap<>();
+            if (node.detachedValue() != null) {
+                arguments.put("value", new ArrayList<>(literalValues(file, node.detachedValue())));
+            }
+            for (TSNode argument : children(firstChild(invocation, "value_arguments"), "value_argument")) {
+                List<TSNode> parts = namedChildren(argument);
+                if (parts.isEmpty()) {
+                    continue;
+                }
+                boolean named = parts.size() > 1 && parts.get(0).getType().equals("simple_identifier");
+                String key = named ? file.text(parts.get(0)) : "value";
+                arguments.computeIfAbsent(key, k -> new ArrayList<>()).addAll(literalValues(file, parts.get(parts.size() - 1)));
+            }
+            result.add(new KotlinAnnotation(file.text(userType).replaceAll("<.*", ""), arguments));
+        }
+        return List.copyOf(result);
+    }
+
+    private static List<String> literalValues(KotlinFile file, TSNode value) {
+        if (value.getType().equals("collection_literal")) {
+            List<String> values = new ArrayList<>();
+            namedChildren(value).forEach(v -> values.addAll(literalValues(file, v)));
+            return values;
+        }
+        // arrayOf("/a", "/b")
+        if (value.getType().equals("call_expression") && file.text(value).startsWith("arrayOf")) {
+            List<String> values = new ArrayList<>();
+            KotlinFile.descendants(value, "value_argument", null).forEach(a ->
+                    namedChildren(a).forEach(v -> values.addAll(literalValues(file, v))));
+            return values;
+        }
+        if (value.getType().equals("string_literal")) {
+            String text = file.text(value);
+            return List.of(text.length() >= 2 ? text.substring(1, text.length() - 1) : text);
+        }
+        return List.of("${" + file.text(value).strip() + "}");
+    }
+
+    /**
+     * 선언에 붙은 애너테이션.
+     * @param detachedValue 떨어져 나간 애너테이션의 괄호 안 값 (@RequestMapping("/api") → "/api"), 아니면 null
+     */
+    private record AnnotationNode(TSNode annotation, TSNode detachedValue) {
+    }
+
+    /**
+     * 선언에 붙은 애너테이션 노드. tree-sitter-kotlin 은 파일 최상위의 애너테이션 줄을 클래스와 떼어
+     * 식(prefix_expression: 애너테이션 + 다음 식)으로 읽을 때가 있어서, 바로 윗줄에서 끝나는 그런 앞 형제도 같이 본다.
+     */
+    private static List<AnnotationNode> annotationNodes(TSNode decl) {
+        List<AnnotationNode> result = new ArrayList<>();
+        TSNode previous = decl.getPrevNamedSibling();
+        if (!KotlinFile.isNull(previous) && previous.getType().equals("prefix_expression")
+                && previous.getEndPoint().getRow() + 1 >= decl.getStartPoint().getRow()) {
+            result.addAll(detached(previous));
+        }
+        children(firstChild(decl, "modifiers"), "annotation").forEach(a -> result.add(new AnnotationNode(a, null)));
+        return result;
+    }
+
+    /** @A\n@B("/x") 가 식으로 읽힌 것: prefix_expression(애너테이션, prefix_expression(애너테이션, (값))). 다른 식이 섞이면 빈 목록 */
+    private static List<AnnotationNode> detached(TSNode expr) {
+        List<AnnotationNode> result = new ArrayList<>();
+        TSNode current = expr;
+        while (true) {
+            List<TSNode> parts = namedChildren(current);
+            if (parts.size() != 2 || !parts.get(0).getType().equals("annotation")) {
+                return List.of();
+            }
+            TSNode annotation = parts.get(0);
+            TSNode rest = parts.get(1);
+            switch (rest.getType()) {
+                case "parenthesized_expression" -> {
+                    List<TSNode> inner = namedChildren(rest);
+                    result.add(new AnnotationNode(annotation, inner.size() == 1 ? inner.get(0) : null));
+                    return result;
+                }
+                case "annotation" -> {
+                    result.add(new AnnotationNode(annotation, null));
+                    result.add(new AnnotationNode(rest, null));
+                    return result;
+                }
+                case "prefix_expression" -> {
+                    result.add(new AnnotationNode(annotation, null));
+                    current = rest;
+                }
+                default -> {
+                    return List.of();
+                }
+            }
+        }
+    }
+
     private List<String> annotations(KotlinFile file, TSNode decl) {
-        TSNode modifiers = firstChild(decl, "modifiers");
         List<String> result = new ArrayList<>();
-        for (TSNode annotation : children(modifiers, "annotation")) {
+        for (TSNode annotation : annotationNodes(decl).stream().map(AnnotationNode::annotation).toList()) {
             TSNode userType = KotlinFile.descendants(annotation, "user_type", null).stream().findFirst().orElse(null);
             if (userType != null) {
                 String written = file.text(userType);

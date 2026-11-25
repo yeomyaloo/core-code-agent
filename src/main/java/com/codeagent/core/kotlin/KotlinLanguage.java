@@ -2,7 +2,9 @@ package com.codeagent.core.kotlin;
 
 import com.codeagent.core.LanguageParser;
 import com.codeagent.core.SourceFiles;
+import com.codeagent.core.model.CodeEdgeKind;
 import com.codeagent.core.model.CodeGraphDraft;
+import com.codeagent.core.model.CodeNodeKind;
 import com.codeagent.core.rules.SinkRules;
 
 import java.nio.file.Path;
@@ -11,7 +13,7 @@ import java.util.Map;
 
 /**
  * Kotlin 파서 (tree-sitter). 구조·호출 관계와 서버 위험 지점 규칙(SinkRules)으로 그래프를 더한다.
- * Kotlin 진입점(Spring 애너테이션 등)은 아직 찾지 않는다. 안드로이드처럼 진입점·규칙이 다른 제품은
+ * Spring 컨트롤러(@RestController·@GetMapping 등)를 진입점으로 찾는다({@link KotlinEntryPointDetector}). 안드로이드처럼 진입점·규칙이 다른 제품은
  * {@link KotlinProject} 와 {@link KotlinGraphSupport} 를 직접 쓴다.
  */
 public final class KotlinLanguage implements LanguageParser {
@@ -49,6 +51,20 @@ public final class KotlinLanguage implements LanguageParser {
     public void build(KotlinProject project, KotlinGraphSupport support) {
         project.types().forEach(support::addStructure);
         project.types().forEach(support::addOverrides);
+        KotlinEntryPointDetector detector = new KotlinEntryPointDetector();
+        CodeGraphDraft draft = support.draft();
+        for (KotlinProject.KotlinType type : project.types()) {
+            for (KotlinEntryPointDetector.KotlinEntryPoint entry : detector.detect(project, type)) {
+                KotlinProject.KotlinFunction handler = entry.handler();
+                String entryKey = draft.addNode(new CodeGraphDraft.NodeDraft(CodeNodeKind.ENTRY_POINT, entry.qualifiedName(),
+                        type.filePath(), handler.startLine(), handler.endLine(), Map.of(
+                        "httpMethod", entry.httpMethod(),
+                        "path", entry.path(),
+                        "handler", handler.key(),
+                        "language", "kotlin")));
+                draft.addEdge(entryKey, KotlinGraphSupport.methodKey(handler), CodeEdgeKind.ROUTES_TO);
+            }
+        }
         project.types().forEach(t -> t.functions().forEach(f -> support.addCalls(f, SinkRules::match, Map.of())));
     }
 

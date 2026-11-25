@@ -60,6 +60,10 @@ public final class KotlinGraphSupport {
         this.foreign = foreign;
     }
 
+    public CodeGraphDraft draft() {
+        return draft;
+    }
+
     // ---- 구조 ----
 
     public void addStructure(KotlinType type) {

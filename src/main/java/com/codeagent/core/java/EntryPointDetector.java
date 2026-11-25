@@ -27,7 +27,8 @@ public class EntryPointDetector {
 
     private static final Set<String> CONTROLLER_ANNOTATIONS = Set.of("RestController", "Controller");
 
-    private static final Map<String, String> MAPPING_ANNOTATIONS = Map.of(
+    /** 매핑 애너테이션 → HTTP 메서드 (RequestMapping 은 method 인자로 정한다). Kotlin 진입점도 같이 쓴다 */
+    public static final Map<String, String> MAPPING_ANNOTATIONS = Map.of(
             "GetMapping", "GET",
             "PostMapping", "POST",
             "PutMapping", "PUT",
@@ -123,7 +124,7 @@ public class EntryPointDetector {
         return List.of("${" + expr + "}");
     }
 
-    static String joinPath(String classPath, String methodPath) {
+    public static String joinPath(String classPath, String methodPath) {
         String joined = ("/" + classPath + "/" + methodPath).replaceAll("/+", "/");
         return joined.length() > 1 && joined.endsWith("/") ? joined.substring(0, joined.length() - 1) : joined;
     }
