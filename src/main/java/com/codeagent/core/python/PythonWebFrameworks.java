@@ -26,7 +26,8 @@ import static com.codeagent.core.python.PythonModule.namedChildren;
  *   <li>Flask: app = Flask(...), bp = Blueprint(..., url_prefix=), app.register_blueprint(bp, url_prefix=) (중첩 포함),
  *       @app.route(methods=[...]) · @bp.get/post/…, app.add_url_rule(rule, view_func=함수 | View.as_view(...)),
  *       Flask-RESTful·RESTX 의 api.add_resource(Resource, "/x") 와 @ns.route("/x") 클래스</li>
- *   <li>Django: urlpatterns 의 path / re_path / url, include("app.urls" | 모듈 | router.urls | [...]),
+ *   <li>Django: settings 의 ROOT_URLCONF 에서 시작해(없거나 못 찾으면 include 되지 않은 urls 모두에서)
+ *       urlpatterns 의 path / re_path / url, include("app.urls" | 모듈 | router.urls | [...]),
  *       함수 뷰, View.as_view() 클래스 뷰, DRF router.register("users", ViewSet) 와 @action</li>
  * </ul>
  * 진입점 props 의 guards 에는 인증·권한과 관련 있을 만한 것(데코레이터, Mixin, permission_classes, before_request)을 적는다.
@@ -380,7 +381,13 @@ final class PythonWebFrameworks {
         if (urlModules.isEmpty()) {
             return;
         }
-        // 다른 urls 가 include 하는 모듈은 그쪽 경로 아래에서만 만든다
+        // settings 의 ROOT_URLCONF 가 가리키는 모듈에서만 시작한다 (거기서 이어지지 않는 urls 는 실제로 열린 경로가 아니다)
+        List<PythonModule> roots = rootUrlconfs();
+        if (!roots.isEmpty()) {
+            roots.forEach(root -> emitModule(root, "", new HashSet<>(), 0));
+            return;
+        }
+        // ROOT_URLCONF 를 모르면: 다른 urls 가 include 하는 모듈은 그쪽 경로 아래에서만 만든다
         Set<String> included = new HashSet<>();
         for (PythonModule module : urlModules) {
             for (TSNode expr : urlpatterns(module)) {
@@ -400,6 +407,23 @@ final class PythonWebFrameworks {
                 emitModule(module, "", new HashSet<>(), 0);
             }
         }
+    }
+
+    /**
+     * 모듈 최상위의 ROOT_URLCONF = "proj.urls" 가 가리키는 urls 모듈들 (dev·prod 설정이 다르면 모두).
+     * 값이 문자열이 아니거나 모듈을 찾지 못하면 빼고, 하나도 없으면 빈 목록
+     */
+    private List<PythonModule> rootUrlconfs() {
+        Set<PythonModule> roots = new LinkedHashSet<>();
+        for (PythonModule module : modules) {
+            TSNode value = module.moduleAssignments.get("ROOT_URLCONF");
+            String name = value == null ? null : PythonGraphBuilder.stringValue(module, value);
+            PythonModule target = name == null ? null : builder.moduleBySuffix(name);
+            if (target != null && !urlpatterns(target).isEmpty()) {
+                roots.add(target);
+            }
+        }
+        return List.copyOf(roots);
     }
 
     /** urlpatterns = […] 와 urlpatterns += … 의 식들 */
