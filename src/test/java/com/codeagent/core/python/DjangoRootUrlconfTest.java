@@ -73,6 +73,78 @@ class DjangoRootUrlconfTest {
         assertThat(entries()).containsExactly("ANY /old -> app.legacy.views.old");
     }
 
+    @Test
+    void 환경_변수의_기본값으로_ROOT_URLCONF_를_푼다() throws IOException {
+        site();
+        write("site/config/settings.py", """
+                import os
+                ROOT_URLCONF = os.environ.get("DJANGO_URLCONF", "config.urls")
+                """);
+
+        assertThat(entries()).containsExactly("ANY /blog/<int:pk> -> site.blog.views.post");
+    }
+
+    @Test
+    void 기본값이_없으면_env_파일에서_찾는다() throws IOException {
+        site();
+        write("site/config/settings.py", """
+                from os import environ
+                ROOT_URLCONF = environ["URLCONF"]
+                """);
+        write(".env.example", """
+                # 예시 설정
+                export URLCONF="config.urls"
+                DEBUG=1
+                """);
+
+        assertThat(entries()).containsExactly("ANY /blog/<int:pk> -> site.blog.views.post");
+    }
+
+    @Test
+    void django_environ_과_조건식도_푼다() throws IOException {
+        site();
+        write("site/config/prod_urls.py", """
+                from django.urls import path, include
+
+                urlpatterns = [path("p/", include("blog.urls"))]
+                """);
+        write("site/config/settings.py", """
+                import environ
+                env = environ.Env()
+                DEBUG = env.bool("DEBUG", default=False)
+                PROJECT = "config"
+                DEV_URLCONF = env("DEV_URLCONF", default=f"{PROJECT}.urls")
+                ROOT_URLCONF = DEV_URLCONF if DEBUG else PROJECT + ".prod_urls"
+                """);
+
+        assertThat(entries()).containsExactlyInAnyOrder(
+                "ANY /blog/<int:pk> -> site.blog.views.post",
+                "ANY /p/<int:pk> -> site.blog.views.post");
+    }
+
+    /** config/urls.py → blog, 그리고 어디에도 연결되지 않은 legacy/urls.py */
+    private void site() throws IOException {
+        write("site/config/urls.py", """
+                from django.urls import path, include
+
+                urlpatterns = [path("blog/", include("blog.urls"))]
+                """);
+        write("site/blog/urls.py", """
+                from django.urls import path
+                from . import views
+
+                urlpatterns = [path("<int:pk>/", views.post)]
+                """);
+        write("site/blog/views.py", "def post(request, pk):\n    return None\n");
+        write("site/legacy/urls.py", """
+                from django.urls import path
+                from . import views
+
+                urlpatterns = [path("old/", views.old)]
+                """);
+        write("site/legacy/views.py", "def old(request):\n    return None\n");
+    }
+
     private List<String> entries() {
         return CodeGraphEngine.analyze(root).draft().nodes().stream()
                 .filter(n -> n.kind() == CodeNodeKind.ENTRY_POINT).map(NodeDraft::qualifiedName).toList();

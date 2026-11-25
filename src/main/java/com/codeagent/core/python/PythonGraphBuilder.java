@@ -59,6 +59,7 @@ final class PythonGraphBuilder {
             "PermissionError", "FileNotFoundError", "StopIteration", "AssertionError", "ImportError", "TimeoutError",
             "ConnectionError", "UnicodeDecodeError", "LookupError", "ArithmeticError", "ZeroDivisionError");
 
+    private final java.nio.file.Path root;
     private final List<PythonModule> modules;
     private final CodeGraphDraft draft;
 
@@ -73,7 +74,9 @@ final class PythonGraphBuilder {
     private record Router(String key, String ownPrefix, List<String> includedPrefixes, List<String> dependencies) {
     }
 
-    PythonGraphBuilder(List<PythonModule> modules, CodeGraphDraft draft) {
+    /** @param root 저장소 폴더 (.env 처럼 Python 이 아닌 설정 파일을 읽을 때) */
+    PythonGraphBuilder(java.nio.file.Path root, List<PythonModule> modules, CodeGraphDraft draft) {
+        this.root = root;
         this.modules = modules;
         this.draft = draft;
         Set<String> ambiguous = new HashSet<>();
@@ -108,7 +111,7 @@ final class PythonGraphBuilder {
         for (FunctionInfo fn : functions.values()) {
             addEntryPoints(fn);
         }
-        new PythonWebFrameworks(this, modules, draft).addEntryPoints();
+        new PythonWebFrameworks(this, root, modules, draft).addEntryPoints();
         for (PythonModule module : modules) {
             addCalls(module.body);
         }

@@ -71,7 +71,7 @@ repositories {
 }
 
 dependencies {
-    implementation 'com.codeagent:core-code-agent:0.13.0'   // bump the number to upgrade
+    implementation 'com.codeagent:core-code-agent:0.14.0'   // bump the number to upgrade
 }
 ```
 
@@ -103,10 +103,10 @@ Only the shared engine was pulled out, because a Spring Boot application cannot 
 ```
 cotcha-trail                                         consumers
 bump version in build.gradle
-git tag v0.13.0 && git push origin v0.13.0
+git tag v0.14.0 && git push origin v0.14.0
    │ GitHub Actions: tests on 4 OSes, then ./gradlew publish
    ▼
-GitHub Packages  com.codeagent:core-code-agent:0.13.0  ◀── implementation '…:0.13.0'
+GitHub Packages  com.codeagent:core-code-agent:0.14.0  ◀── implementation '…:0.14.0'
                                                           Gradle downloads it at build time
 ```
 
@@ -200,6 +200,7 @@ Python notes:
 | 2-9 | Constant paths: `@GetMapping(Paths.USERS)`, `GET(ApiPaths.ORDERS + "/x")`, static imports, Kotlin `const val` and string templates (`"$V2/users"`) resolve to their values in MVC mappings and routers (`JavaConstants`, `KotlinProject.constantValue`); unknown constants stay as `${expr}` | ✅ Done (v0.11.0) |
 | 2-10 | Flask and Django entry points (`PythonWebFrameworks`): Flask apps and blueprints (`url_prefix`, nested `register_blueprint`), `@app.route`/`@bp.get`, `add_url_rule`, `MethodView`, Flask-RESTful/RESTX; Django `urlpatterns` with `include`, function and class views, DRF routers and `@action`. Entry points carry `framework` and `guards` (auth hints: decorators, `*Mixin`, `permission_classes`, `before_request`). New Python sinks: `render_template_string` (SSTI), Django `redirect`/`HttpResponseRedirect`, `mark_safe`, `RawSQL`, `FileResponse` | ✅ Done (v0.12.0) |
 | 2-11 | Django `ROOT_URLCONF`: entry points start from the urls module named in settings (all settings variants), so urls files that nothing connects are left out; without it, every urls module that is not included elsewhere is a root | ✅ Done (v0.13.0) |
+| 2-12 | `ROOT_URLCONF` from the environment: `os.environ.get`/`os.getenv` defaults, django-environ `env(…, default=)`, python-decouple `config(…, default=)`, `os.environ["X"]` looked up in `.env*` files, plus module variables, `a if DEBUG else b`, `+` and f-strings | ✅ Done (v0.14.0) |
 | 2-1 | `JavaGraphSupport`: Java building blocks as public API, so other products (cotcha-pinch for Android) reuse parsing and call linking instead of copying them. No change in be/mcp output | ✅ Done (v0.3.0) |
 | 3 | TypeScript backend parser on the same plugin interface | ⏳ Planned |
 
@@ -297,10 +298,10 @@ cotcha-trail  [엔진, 라이브러리]  <── 의존 ── cotcha-net     [S
 ```
 cotcha-trail                                         쓰는 쪽
 build.gradle 의 version 올리기
-git tag v0.13.0 && git push origin v0.13.0
+git tag v0.14.0 && git push origin v0.14.0
    │ GitHub Actions: 4개 OS 테스트 → ./gradlew publish
    ▼
-GitHub Packages  com.codeagent:core-code-agent:0.13.0  ◀── implementation '…:0.13.0'
+GitHub Packages  com.codeagent:core-code-agent:0.14.0  ◀── implementation '…:0.14.0'
                                                           빌드할 때 Gradle 이 받아 옴
 ```
 
@@ -394,6 +395,7 @@ Python 참고:
 | 2-9 | 상수 경로: `@GetMapping(Paths.USERS)`, `GET(ApiPaths.ORDERS + "/x")`, static import, Kotlin `const val`·문자열 템플릿(`"$V2/users"`)을 MVC 매핑과 라우터에서 값으로 푼다(`JavaConstants`, `KotlinProject.constantValue`). 모르는 상수는 `${식}` 으로 남긴다 | ✅ 완료 (v0.11.0) |
 | 2-10 | Flask·Django 진입점(`PythonWebFrameworks`): Flask 앱·블루프린트(`url_prefix`, 중첩 `register_blueprint`), `@app.route`·`@bp.get`, `add_url_rule`, `MethodView`, Flask-RESTful·RESTX, Django `urlpatterns`·`include`·함수/클래스 뷰·DRF 라우터·`@action`. 진입점에 `framework` 와 `guards`(인증 단서: 데코레이터, `*Mixin`, `permission_classes`, `before_request`). 새 Python 위험 지점: `render_template_string`(SSTI), Django `redirect`·`HttpResponseRedirect`, `mark_safe`, `RawSQL`, `FileResponse` | ✅ 완료 (v0.12.0) |
 | 2-11 | Django `ROOT_URLCONF`: settings 가 가리키는 urls 모듈(설정 파일이 여럿이면 모두)에서 시작해서, 어디에도 연결되지 않은 urls 파일은 뺀다. 없으면 다른 곳에서 include 하지 않은 urls 모듈을 모두 시작점으로 | ✅ 완료 (v0.13.0) |
+| 2-12 | 환경 변수로 정한 `ROOT_URLCONF`: `os.environ.get`·`os.getenv` 기본값, django-environ `env(…, default=)`, python-decouple `config(…, default=)`, `os.environ["X"]` 는 `.env*` 파일에서, 그리고 모듈 변수, `a if DEBUG else b`, `+`, f-string | ✅ 완료 (v0.14.0) |
 | 2-1 | `JavaGraphSupport`: 규칙이 붙지 않은 Java 부품을 공개 API 로. 다른 제품(안드로이드용 cotcha-pinch)이 파싱·호출 연결을 복사하지 않고 쓴다. be·mcp 결과는 그대로 | ✅ 완료 (v0.3.0) |
 | 3 | 같은 플러그인 구조로 TypeScript 백엔드 파서 | ⏳ 예정 |
 

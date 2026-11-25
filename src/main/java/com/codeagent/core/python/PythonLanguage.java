@@ -87,7 +87,7 @@ public final class PythonLanguage implements LanguageParser {
                 log.debug("파이썬 파싱 실패: {}", relative, e);
             }
         }
-        new PythonGraphBuilder(modules, draft).build();
+        new PythonGraphBuilder(root, modules, draft).build();
     }
 
     /** app/api/scan.py → app.api.scan, app/__init__.py → app */

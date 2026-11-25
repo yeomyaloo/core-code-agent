@@ -26,7 +26,7 @@ import static com.codeagent.core.python.PythonModule.namedChildren;
  *   <li>Flask: app = Flask(...), bp = Blueprint(..., url_prefix=), app.register_blueprint(bp, url_prefix=) (중첩 포함),
  *       @app.route(methods=[...]) · @bp.get/post/…, app.add_url_rule(rule, view_func=함수 | View.as_view(...)),
  *       Flask-RESTful·RESTX 의 api.add_resource(Resource, "/x") 와 @ns.route("/x") 클래스</li>
- *   <li>Django: settings 의 ROOT_URLCONF 에서 시작해(없거나 못 찾으면 include 되지 않은 urls 모두에서)
+ *   <li>Django: settings 의 ROOT_URLCONF(문자열·환경 변수 기본값·.env 값)에서 시작해(없거나 못 찾으면 include 되지 않은 urls 모두에서)
  *       urlpatterns 의 path / re_path / url, include("app.urls" | 모듈 | router.urls | [...]),
  *       함수 뷰, View.as_view() 클래스 뷰, DRF router.register("users", ViewSet) 와 @action</li>
  * </ul>
@@ -106,6 +106,7 @@ final class PythonWebFrameworks {
     }
 
     private final PythonGraphBuilder builder;
+    private final java.nio.file.Path root;
     private final List<PythonModule> modules;
     private final CodeGraphDraft draft;
     private final Map<String, FlaskObject> flaskObjects = new LinkedHashMap<>();
@@ -113,8 +114,9 @@ final class PythonWebFrameworks {
     private final Map<String, List<TSNode>> drfRegistrations = new LinkedHashMap<>();
     private final Map<String, PythonModule> drfRouterModules = new LinkedHashMap<>();
 
-    PythonWebFrameworks(PythonGraphBuilder builder, List<PythonModule> modules, CodeGraphDraft draft) {
+    PythonWebFrameworks(PythonGraphBuilder builder, java.nio.file.Path root, List<PythonModule> modules, CodeGraphDraft draft) {
         this.builder = builder;
+        this.root = root;
         this.modules = modules;
         this.draft = draft;
     }
@@ -410,20 +412,155 @@ final class PythonWebFrameworks {
     }
 
     /**
-     * 모듈 최상위의 ROOT_URLCONF = "proj.urls" 가 가리키는 urls 모듈들 (dev·prod 설정이 다르면 모두).
-     * 값이 문자열이 아니거나 모듈을 찾지 못하면 빼고, 하나도 없으면 빈 목록
+     * 모듈 최상위의 ROOT_URLCONF 가 가리키는 urls 모듈들 (dev·prod 설정이 다르면 모두).
+     * 문자열, 같은 모듈의 변수, "a" if DEBUG else "b", + 와 f-string, 환경 변수(os.environ.get·os.getenv·environ.get 의 기본값,
+     * django-environ env(…, default=)·python-decouple config(…, default=), 기본값이 없으면 .env 파일의 값)를 푼다.
+     * 하나도 못 찾으면 빈 목록
      */
     private List<PythonModule> rootUrlconfs() {
         Set<PythonModule> roots = new LinkedHashSet<>();
         for (PythonModule module : modules) {
             TSNode value = module.moduleAssignments.get("ROOT_URLCONF");
-            String name = value == null ? null : PythonGraphBuilder.stringValue(module, value);
-            PythonModule target = name == null ? null : builder.moduleBySuffix(name);
-            if (target != null && !urlpatterns(target).isEmpty()) {
-                roots.add(target);
+            if (value == null) {
+                continue;
+            }
+            for (String name : settingValues(module, value, 0)) {
+                PythonModule target = builder.moduleBySuffix(name);
+                if (target != null && !urlpatterns(target).isEmpty()) {
+                    roots.add(target);
+                }
             }
         }
         return List.copyOf(roots);
+    }
+
+    /** 설정 식이 가질 수 있는 문자열 값들. 모르면 빈 목록 */
+    private List<String> settingValues(PythonModule module, TSNode expr, int depth) {
+        if (isNull(expr) || depth > MAX_DEPTH) {
+            return List.of();
+        }
+        switch (expr.getType()) {
+            case "string" -> {
+                return interpolate(module, expr, depth);
+            }
+            case "parenthesized_expression" -> {
+                return settingValues(module, firstNamedChild(expr), depth + 1);
+            }
+            case "identifier" -> {
+                TSNode value = module.moduleAssignments.get(module.text(expr));
+                return value == null || value == expr ? List.of() : settingValues(module, value, depth + 1);
+            }
+            case "conditional_expression" -> {
+                // "a.urls" if DEBUG else "b.urls": 둘 다
+                Set<String> values = new LinkedHashSet<>();
+                List<TSNode> parts = namedChildren(expr);
+                if (parts.size() == 3) {
+                    values.addAll(settingValues(module, parts.get(0), depth + 1));
+                    values.addAll(settingValues(module, parts.get(2), depth + 1));
+                }
+                return List.copyOf(values);
+            }
+            case "binary_operator" -> {
+                List<String> left = settingValues(module, expr.getChildByFieldName("left"), depth + 1);
+                List<String> right = settingValues(module, expr.getChildByFieldName("right"), depth + 1);
+                List<String> values = new ArrayList<>();
+                left.forEach(l -> right.forEach(r -> values.add(l + r)));
+                return values;
+            }
+            case "call" -> {
+                return environmentValues(module, expr, depth);
+            }
+            case "subscript" -> {
+                // os.environ["DJANGO_URLCONF"]: 기본값이 없으니 .env 파일에서
+                String target = builder.qualify(module.text(expr.getChildByFieldName("value")), module.body, Map.of());
+                TSNode key = expr.getChildByFieldName("subscript");
+                String name = PythonGraphBuilder.stringValue(module, key);
+                return "os.environ".equals(target) && name != null ? dotenv(name) : List.of();
+            }
+            default -> {
+                return List.of();
+            }
+        }
+    }
+
+    /** os.environ.get("X", "d") · os.getenv("X", "d") · env("X", default="d") · env.str(…) · config("X", default="d") */
+    private List<String> environmentValues(PythonModule module, TSNode call, int depth) {
+        TSNode function = call.getChildByFieldName("function");
+        TSNode args = call.getChildByFieldName("arguments");
+        String text = module.text(function);
+        String qualified = builder.qualify(text, module.body, Map.of());
+        String simple = text.substring(text.lastIndexOf('.') + 1);
+        boolean osEnv = "os.environ.get".equals(qualified) || "os.getenv".equals(qualified) || "os.environ.setdefault".equals(qualified);
+        boolean libraryEnv = qualified != null && (qualified.startsWith("environ.") || qualified.startsWith("decouple."))
+                || text.equals("env") || text.startsWith("env.") || simple.equals("config") && qualified != null && qualified.startsWith("decouple");
+        if (!osEnv && !libraryEnv) {
+            return List.of();
+        }
+        List<TSNode> positional = positionals(args);
+        String name = positional.isEmpty() ? null : PythonGraphBuilder.stringValue(module, positional.get(0));
+        TSNode fallback = PythonGraphBuilder.keywordArgument(module, args, "default");
+        if (fallback == null && osEnv && positional.size() >= 2) {
+            fallback = positional.get(1);
+        }
+        Set<String> values = new LinkedHashSet<>();
+        if (name != null) {
+            values.addAll(dotenv(name));
+        }
+        if (fallback != null) {
+            values.addAll(settingValues(module, fallback, depth + 1));
+        }
+        return List.copyOf(values);
+    }
+
+    /** "…" 와 f"{PROJECT}.urls" (같은 모듈 변수만 넣을 수 있음) */
+    private List<String> interpolate(PythonModule module, TSNode string, int depth) {
+        List<String> values = new ArrayList<>(List.of(""));
+        for (TSNode child : namedChildren(string)) {
+            List<String> parts;
+            switch (child.getType()) {
+                case "string_content" -> parts = List.of(module.text(child));
+                case "interpolation" -> parts = settingValues(module, firstNamedChild(child), depth + 1);
+                default -> {
+                    continue;
+                }
+            }
+            if (parts.isEmpty()) {
+                return List.of();
+            }
+            List<String> next = new ArrayList<>();
+            values.forEach(v -> parts.forEach(p -> next.add(v + p)));
+            values = next;
+        }
+        return values;
+    }
+
+    /** 저장소의 .env 계열 파일(.env, .env.example, .env.production …)에서 NAME=값 */
+    private List<String> dotenv(String name) {
+        if (root == null) {
+            return List.of();
+        }
+        Set<String> values = new LinkedHashSet<>();
+        java.util.regex.Pattern line = java.util.regex.Pattern.compile("^\\s*(?:export\\s+)?" + java.util.regex.Pattern.quote(name)
+                + "\\s*=\\s*['\"]?([\\w.]+)['\"]?\\s*(?:#.*)?$");
+        try (java.util.stream.Stream<java.nio.file.Path> files = java.nio.file.Files.walk(root, 4)) {
+            for (java.nio.file.Path file : files.filter(java.nio.file.Files::isRegularFile)
+                    .filter(f -> f.getFileName().toString().startsWith(".env"))
+                    .filter(f -> !f.toString().contains("node_modules") && !f.toString().contains(".git" + java.io.File.separator))
+                    .sorted().toList()) {
+                if (java.nio.file.Files.size(file) > 200_000) {
+                    continue;
+                }
+                for (String text : java.nio.file.Files.readAllLines(file, java.nio.charset.StandardCharsets.UTF_8)) {
+                    java.util.regex.Matcher m = line.matcher(text);
+                    if (m.matches()) {
+                        values.add(m.group(1));
+                    }
+                }
+            }
+        } catch (java.io.IOException | java.io.UncheckedIOException e) {
+            // 못 읽는 파일은 건너뛴다 (UTF-8 이 아닌 파일 등)
+        }
+        return List.copyOf(values);
     }
 
     /** urlpatterns = […] 와 urlpatterns += … 의 식들 */
