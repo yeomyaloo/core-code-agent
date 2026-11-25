@@ -89,11 +89,23 @@ public final class PythonSinkRules {
             rule("fastapi.responses", "OPEN_REDIRECT", "CWE-601", "RedirectResponse"),
             rule("starlette.responses", "OPEN_REDIRECT", "CWE-601", "RedirectResponse"),
             rule("flask", "OPEN_REDIRECT", "CWE-601", "redirect"),
+            rule("django.shortcuts", "OPEN_REDIRECT", "CWE-601", "redirect"),
+            rule("django.http", "OPEN_REDIRECT", "CWE-601", "HttpResponseRedirect", "HttpResponsePermanentRedirect"),
+
+            // 서버 측 템플릿 주입: 사용자 값을 템플릿 원문으로
+            rule("flask", "CODE_INJECTION", "CWE-1336", "render_template_string"),
+
+            // Django: 조립한 SQL 조각 (Model.objects.raw / cursor.execute 는 조립한 문자열 검사가 따로 본다)
+            rule("django.db.models.expressions", "SQL", "CWE-89", "RawSQL"),
+            rule("django.db.models", "SQL", "CWE-89", "RawSQL"),
+            rule("django.http", "PATH", "CWE-22", "FileResponse"),
 
             // XSS: 사용자 값을 HTML 응답에 그대로
             rule("fastapi.responses", "XSS", "CWE-79", "HTMLResponse"),
             rule("starlette.responses", "XSS", "CWE-79", "HTMLResponse"),
             rule("markupsafe", "XSS", "CWE-79", "Markup"),
+            rule("flask", "XSS", "CWE-79", "Markup"),
+            rule("django.utils.safestring", "XSS", "CWE-79", "mark_safe"),
             rule("jinja2", "XSS", "CWE-79", "Template"),
 
             // 약한 암호화·난수

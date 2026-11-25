@@ -27,7 +27,8 @@ import static com.codeagent.core.python.PythonModule.namedChildren;
  * 파싱한 Python 모듈들로 코드 그래프를 만든다.
  * <ul>
  *   <li>구조: FILE → CLASS → METHOD, FILE → METHOD(최상위 함수)</li>
- *   <li>진입점: FastAPI 라우터 데코레이터(@app.get, @router.post …) → ROUTES_TO, Depends(...) 의존 함수는 CALLS</li>
+ *   <li>진입점: FastAPI 라우터 데코레이터(@app.get, @router.post …) → ROUTES_TO, Depends(...) 의존 함수는 CALLS.
+ *       Flask·Django 는 {@link PythonWebFrameworks}</li>
  *   <li>호출: import 표로 이름을 정규화해 프로젝트 함수면 CALLS, 위험 API 면 SINK</li>
  * </ul>
  * 타입 추론은 하지 않고 "변수 = 생성자/함수 호출" 대입과 with ... as 만 따라간다.
@@ -107,6 +108,7 @@ final class PythonGraphBuilder {
         for (FunctionInfo fn : functions.values()) {
             addEntryPoints(fn);
         }
+        new PythonWebFrameworks(this, modules, draft).addEntryPoints();
         for (PythonModule module : modules) {
             addCalls(module.body);
         }
@@ -162,7 +164,7 @@ final class PythonGraphBuilder {
         }
     }
 
-    private List<ClassInfo> ancestors(ClassInfo cls) {
+    List<ClassInfo> ancestors(ClassInfo cls) {
         List<ClassInfo> result = new ArrayList<>();
         Set<String> seen = new HashSet<>();
         List<ClassInfo> queue = new ArrayList<>(List.of(cls));
@@ -350,7 +352,7 @@ final class PythonGraphBuilder {
         return methods.isEmpty() ? "GET" : String.join(",", methods);
     }
 
-    private static String joinPath(String a, String b) {
+    static String joinPath(String a, String b) {
         String joined = (a == null ? "" : a) + "/" + (b == null ? "" : b);
         joined = joined.replaceAll("/+", "/");
         if (joined.length() > 1 && joined.endsWith("/")) {
@@ -625,7 +627,7 @@ final class PythonGraphBuilder {
     }
 
     /** 점으로 이은 이름(a.b.c)의 첫 부분을 지역 변수·self·모듈 정의·import 로 푼다 */
-    private String qualify(String dotted, FunctionInfo context, Map<String, String> localTypes) {
+    String qualify(String dotted, FunctionInfo context, Map<String, String> localTypes) {
         return qualify(dotted, context, localTypes, 0);
     }
 
@@ -659,7 +661,7 @@ final class PythonGraphBuilder {
             if (value.getType().equals("call")) {
                 String callee = qualify(module.text(value.getChildByFieldName("function")), module.body, Map.of(), depth + 1);
                 // 라우터·앱 변수는 변수 자체를 가리키고, 그 밖의 객체는 만든 타입을 가리킨다
-                if (callee != null && FASTAPI_APP_TYPES.contains(callee)) {
+                if (callee != null && (FASTAPI_APP_TYPES.contains(callee) || PythonWebFrameworks.ROUTER_OBJECT_TYPES.contains(callee))) {
                     return module.name + "." + head + rest;
                 }
                 return callee == null ? null : callee + rest;
@@ -673,7 +675,7 @@ final class PythonGraphBuilder {
     }
 
     /** 정규화 이름 → 프로젝트 함수. 모듈 이름은 저장소 폴더 구조와 import 가 달라도 접미사로 맞춘다 */
-    private FunctionInfo projectFunction(String qualified) {
+    FunctionInfo projectFunction(String qualified) {
         if (qualified == null) {
             return null;
         }
@@ -710,7 +712,7 @@ final class PythonGraphBuilder {
         return null;
     }
 
-    private FunctionInfo inheritedMethod(ClassInfo cls, String name) {
+    FunctionInfo inheritedMethod(ClassInfo cls, String name) {
         FunctionInfo own = cls.methods().get(name);
         if (own != null) {
             return own;
@@ -724,7 +726,12 @@ final class PythonGraphBuilder {
         return null;
     }
 
-    private ClassInfo projectClass(String qualified) {
+    /** 모듈 이름(접미사도 됨) → 모듈. 없거나 겹치면 null */
+    PythonModule moduleBySuffix(String name) {
+        return name == null ? null : moduleBySuffix.get(name);
+    }
+
+    ClassInfo projectClass(String qualified) {
         if (qualified == null) {
             return null;
         }
@@ -748,7 +755,7 @@ final class PythonGraphBuilder {
     // ---- 트리 도우미 ----
 
     /** 노드 아래의 호출. 중첩 함수·클래스 정의 안은 그 함수 몫이라 들어가지 않는다 (includeNested 면 들어감) */
-    private static List<TSNode> calls(TSNode node, boolean includeNested) {
+    static List<TSNode> calls(TSNode node, boolean includeNested) {
         List<TSNode> result = new ArrayList<>();
         collectCalls(node, includeNested, result, true);
         return result;
@@ -771,7 +778,7 @@ final class PythonGraphBuilder {
         }
     }
 
-    private static TSNode firstPositional(TSNode args) {
+    static TSNode firstPositional(TSNode args) {
         if (isNull(args)) {
             return null;
         }
@@ -785,7 +792,7 @@ final class PythonGraphBuilder {
         return null;
     }
 
-    private static TSNode keywordArgument(PythonModule module, TSNode args, String name) {
+    static TSNode keywordArgument(PythonModule module, TSNode args, String name) {
         if (isNull(args)) {
             return null;
         }
@@ -802,7 +809,7 @@ final class PythonGraphBuilder {
     }
 
     /** 고정 문자열 값. f-string 등 값을 모르면 null */
-    private static String stringValue(PythonModule module, TSNode node) {
+    static String stringValue(PythonModule module, TSNode node) {
         if (node == null || !node.getType().equals("string")) {
             return null;
         }
@@ -818,7 +825,7 @@ final class PythonGraphBuilder {
         return sb.toString();
     }
 
-    private static String methodKey(FunctionInfo fn) {
+    static String methodKey(FunctionInfo fn) {
         return CodeGraphDraft.key(CodeNodeKind.METHOD, fn.qualifiedName());
     }
 
