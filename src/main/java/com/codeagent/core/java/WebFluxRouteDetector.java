@@ -51,8 +51,11 @@ public final class WebFluxRouteDetector {
             }
             for (MethodCallExpr call : decl.findAll(MethodCallExpr.class)) {
                 String name = call.getNameAsString();
-                if (!HTTP_METHODS.contains(name) || call.getArguments().isEmpty()
-                        || !(call.getArgument(0) instanceof StringLiteralExpr pathLiteral)) {
+                if (!HTTP_METHODS.contains(name) || call.getArguments().isEmpty()) {
+                    continue;
+                }
+                String path = path(project, type, call.getArgument(0));
+                if (path == null) {
                     continue;
                 }
                 Expression handlerExpr;
@@ -69,7 +72,7 @@ public final class WebFluxRouteDetector {
                     continue;
                 }
                 MethodInfo handler = resolve(project, support, method, handlerExpr);
-                result.add(new RouteEntry(name, EntryPointDetector.joinPath(prefix(call), pathLiteral.getValue()), method, handler));
+                result.add(new RouteEntry(name, EntryPointDetector.joinPath(prefix(call, project, type), path), method, handler));
             }
         }
         return result;
@@ -90,7 +93,7 @@ public final class WebFluxRouteDetector {
     }
 
     /** .path("/api", b -> …) · .nest(path("/api"), b -> …) · nest(path("/api"), route(…)) 를 바깥부터 이은 경로 */
-    private static String prefix(MethodCallExpr call) {
+    private static String prefix(MethodCallExpr call, JavaProject project, TypeInfo type) {
         String prefix = "";
         Node current = call;
         while (current.getParentNode().isPresent()) {
@@ -99,12 +102,11 @@ public final class WebFluxRouteDetector {
             if (parent instanceof MethodCallExpr outer && outer.getArguments().size() >= 2
                     && outer.getArguments().stream().skip(1).anyMatch(a -> within(a, call))) {
                 String segment = null;
-                if (outer.getNameAsString().equals("path") && outer.getArgument(0) instanceof StringLiteralExpr literal) {
-                    segment = literal.getValue();
+                if (outer.getNameAsString().equals("path")) {
+                    segment = path(project, type, outer.getArgument(0));
                 } else if (outer.getNameAsString().equals("nest") && outer.getArgument(0) instanceof MethodCallExpr predicate
-                        && predicate.getNameAsString().equals("path") && predicate.getArguments().size() == 1
-                        && predicate.getArgument(0) instanceof StringLiteralExpr literal) {
-                    segment = literal.getValue();
+                        && predicate.getNameAsString().equals("path") && predicate.getArguments().size() == 1) {
+                    segment = path(project, type, predicate.getArgument(0));
                 }
                 if (segment != null) {
                     prefix = EntryPointDetector.joinPath(segment, prefix);
@@ -113,6 +115,25 @@ public final class WebFluxRouteDetector {
             current = parent;
         }
         return prefix;
+    }
+
+    /**
+     * 경로 인자: 문자열, 값을 아는 상수(Paths.USERS, API + "/x"), 값을 모르는 상수 모양(대문자 이름·+ 로 이은 식)은 ${식}.
+     * accept(JSON) 같은 조건이나 처리 함수가 첫 인자면 경로가 아니다(null)
+     */
+    private static String path(JavaProject project, TypeInfo type, Expression expr) {
+        if (expr instanceof StringLiteralExpr literal) {
+            return literal.getValue();
+        }
+        Optional<String> constant = new JavaConstants(project).value(expr, type);
+        if (constant.isPresent()) {
+            return constant.get();
+        }
+        String name = expr instanceof NameExpr n ? n.getNameAsString()
+                : expr instanceof com.github.javaparser.ast.expr.FieldAccessExpr f ? f.getNameAsString() : null;
+        boolean constantLike = (name != null && name.matches("[A-Z][A-Z0-9_]*"))
+                || expr instanceof com.github.javaparser.ast.expr.BinaryExpr;
+        return constantLike ? "${" + expr + "}" : null;
     }
 
     private static boolean within(Node container, Node node) {

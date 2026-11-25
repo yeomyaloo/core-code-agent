@@ -56,13 +56,13 @@ public final class KotlinRouterDetector {
                     continue;
                 }
                 List<TSNode> arguments = children(firstChild(firstChild(call, "call_suffix"), "value_arguments"), "value_argument");
-                String path = arguments.isEmpty() ? null : stringValue(file, last(namedChildren(arguments.get(0))));
+                String path = arguments.isEmpty() ? null : pathValue(project, type, file, last(namedChildren(arguments.get(0))));
                 if (path == null) {
                     continue;
                 }
                 TSNode handlerNode = arguments.size() >= 2 ? last(namedChildren(arguments.get(arguments.size() - 1))) : trailingLambda(call);
                 KotlinFunction handler = handlerNode == null ? null : resolveHandler(project, function, handlerNode);
-                result.add(new RouterEntry(httpMethod, EntryPointDetector.joinPath(prefix(file, call), path), function, handler));
+                result.add(new RouterEntry(httpMethod, EntryPointDetector.joinPath(prefix(project, type, file, call), path), function, handler));
             }
         }
         return result;
@@ -82,7 +82,7 @@ public final class KotlinRouterDetector {
     }
 
     /** "/api".nest { } · path("/api").nest { } 를 바깥부터 이은 경로 */
-    private static String prefix(KotlinFile file, TSNode node) {
+    private static String prefix(KotlinProject project, KotlinType type, KotlinFile file, TSNode node) {
         String prefix = "";
         for (TSNode current = node.getParent(); !KotlinFile.isNull(current); current = current.getParent()) {
             if (!current.getType().equals("call_expression")) {
@@ -97,7 +97,7 @@ public final class KotlinRouterDetector {
             if (suffix == null || !file.text(suffix).equals("nest")) {
                 continue;
             }
-            String segment = nestPath(file, nav.get(0));
+            String segment = nestPath(project, type, file, nav.get(0));
             if (segment != null) {
                 prefix = EntryPointDetector.joinPath(segment, prefix);
             }
@@ -105,15 +105,16 @@ public final class KotlinRouterDetector {
         return prefix;
     }
 
-    private static String nestPath(KotlinFile file, TSNode target) {
-        if (target.getType().equals("string_literal")) {
-            return stringValue(file, target);
+    private static String nestPath(KotlinProject project, KotlinType type, KotlinFile file, TSNode target) {
+        if (!target.getType().equals("call_expression")) {
+            // "/api".nest { } · Paths.API.nest { }
+            return pathValue(project, type, file, target);
         }
         if (target.getType().equals("call_expression")) {
             List<TSNode> parts = namedChildren(target);
             if (!parts.isEmpty() && parts.get(0).getType().equals("simple_identifier") && file.text(parts.get(0)).equals("path")) {
                 List<TSNode> arguments = children(firstChild(firstChild(target, "call_suffix"), "value_arguments"), "value_argument");
-                return arguments.isEmpty() ? null : stringValue(file, last(namedChildren(arguments.get(0))));
+                return arguments.isEmpty() ? null : pathValue(project, type, file, last(namedChildren(arguments.get(0))));
             }
         }
         return null;
@@ -202,6 +203,30 @@ public final class KotlinRouterDetector {
             return property;
         }
         return Character.isUpperCase(receiver.charAt(0)) ? project.resolve(owner.file(), receiver) : null;
+    }
+
+    /**
+     * 경로 인자: 문자열(템플릿은 상수로 풀기), 값을 아는 상수(Paths.USERS, API + "/x"),
+     * 값을 모르는 상수 모양(대문자 이름·+ 식)은 ${식}. 그 밖(조건·처리 함수)은 경로가 아니다(null)
+     */
+    private static String pathValue(KotlinProject project, KotlinType type, KotlinFile file, TSNode node) {
+        if (node == null) {
+            return null;
+        }
+        if (node.getType().equals("string_literal")) {
+            String content = stringValue(file, node);
+            return project.templateValue(type, content).orElse(content);
+        }
+        if (!Set.of("simple_identifier", "navigation_expression", "additive_expression", "parenthesized_expression").contains(node.getType())) {
+            return null;
+        }
+        String text = file.text(node).strip();
+        java.util.Optional<String> value = project.constantValue(type, text);
+        if (value.isPresent()) {
+            return value.get();
+        }
+        String last = text.substring(text.lastIndexOf('.') + 1);
+        return last.matches("[A-Z][A-Z0-9_]*") || node.getType().equals("additive_expression") ? "${" + text + "}" : null;
     }
 
     private static String stringValue(KotlinFile file, TSNode node) {

@@ -31,7 +31,7 @@ public class CodeGraphBuilder {
     private static final Logger log = LoggerFactory.getLogger(CodeGraphBuilder.class);
 
     private final JavaProject project;
-    private final EntryPointDetector entryPointDetector = new EntryPointDetector();
+    private final EntryPointDetector entryPointDetector;
     private final WebFluxRouteDetector routeDetector = new WebFluxRouteDetector();
     private final CodeGraphDraft draft;
     private final JavaGraphSupport support;
@@ -44,6 +44,7 @@ public class CodeGraphBuilder {
     public CodeGraphBuilder(JavaProject project, CodeGraphDraft draft) {
         this.project = project;
         this.draft = draft;
+        this.entryPointDetector = new EntryPointDetector(project);
         this.support = new JavaGraphSupport(project, draft, Map.of());
     }
 

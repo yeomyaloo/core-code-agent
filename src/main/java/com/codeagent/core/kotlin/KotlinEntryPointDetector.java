@@ -28,7 +28,7 @@ public final class KotlinEntryPointDetector {
             return List.of();
         }
         List<String> classPaths = find(classAnnotations, "RequestMapping")
-                .map(KotlinEntryPointDetector::paths)
+                .map(a -> paths(project, type, a))
                 .orElse(List.of(""));
         List<KotlinEntryPoint> result = new ArrayList<>();
         for (KotlinFunction function : type.functions()) {
@@ -39,7 +39,7 @@ public final class KotlinEntryPointDetector {
                 }
                 List<String> httpMethods = fixedMethod.isEmpty() ? requestMethods(annotation) : List.of(fixedMethod);
                 for (String classPath : classPaths) {
-                    for (String methodPath : paths(annotation)) {
+                    for (String methodPath : paths(project, type, annotation)) {
                         for (String httpMethod : httpMethods) {
                             result.add(new KotlinEntryPoint(httpMethod, EntryPointDetector.joinPath(classPath, methodPath), function));
                         }
@@ -60,8 +60,11 @@ public final class KotlinEntryPointDetector {
         return name.substring(name.lastIndexOf('.') + 1);
     }
 
-    private static List<String> paths(KotlinAnnotation annotation) {
-        List<String> paths = annotation.argument("value", "path");
+    /** 경로 값. 상수(${Paths.USERS})와 템플릿("/api/$BASE")은 프로젝트 상수로 풀고, 못 풀면 그대로 둔다 */
+    private static List<String> paths(KotlinProject project, KotlinType type, KotlinAnnotation annotation) {
+        List<String> paths = annotation.argument("value", "path").stream()
+                .map(p -> project.templateValue(type, p).orElse(p))
+                .toList();
         return paths.isEmpty() ? List.of("") : paths;
     }
 

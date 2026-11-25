@@ -89,7 +89,7 @@ class KotlinEntryPointTest {
                         "PUT /api/a -> com.ex.web.UserController#multi()",
                         "POST /api/b -> com.ex.web.UserController#multi()",
                         "PUT /api/b -> com.ex.web.UserController#multi()",
-                        "POST /api/${Paths.USERS} -> com.ex.web.UserController#create()",
+                        "POST /api/users -> com.ex.web.UserController#create()",
                         "DELETE /api -> com.ex.web.UserController#remove()",
                         "GET /api/run -> com.ex.web.UserController#run(String)");
         NodeDraft get = result.draft().nodes().stream()

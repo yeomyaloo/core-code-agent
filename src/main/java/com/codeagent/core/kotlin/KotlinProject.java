@@ -112,6 +112,8 @@ public final class KotlinProject {
 
     /** 클래스 선언 노드 (애너테이션 인자를 읽을 때) */
     private final Map<String, TSNode> typeNodes = new java.util.HashMap<>();
+    /** 타입 FQN → 프로퍼티 이름 → 초기값 식(원문). 경로 상수를 풀 때 쓴다 */
+    private final Map<String, Map<String, String>> constants = new java.util.HashMap<>();
 
     private final Path root;
     private final List<KotlinFile> files = new ArrayList<>();
@@ -412,6 +414,134 @@ public final class KotlinProject {
         if (declared != null) {
             type.propertyTypes().put(file.text(name), declared);
         }
+        // val X = "/users" / const val API = BASE + "/v1" 의 초기값
+        List<TSNode> parts = namedChildren(property);
+        int at = parts.indexOf(variable);
+        if (at >= 0 && at + 1 < parts.size()) {
+            TSNode value = parts.get(at + 1);
+            if (Set.of("string_literal", "additive_expression", "simple_identifier", "navigation_expression", "parenthesized_expression")
+                    .contains(value.getType())) {
+                constants.computeIfAbsent(type.fqn(), k -> new LinkedHashMap<>()).put(file.text(name), file.text(value));
+            }
+        }
+    }
+
+    // ---- 문자열 상수 (경로 상수) ----
+
+    private static final java.util.regex.Pattern TEMPLATE = java.util.regex.Pattern.compile("\\$\\{([^}]+)}|\\$([A-Za-z_]\\w*)");
+    private static final int MAX_CONSTANT_DEPTH = 8;
+
+    /**
+     * 식의 문자열 값. "…" (템플릿 $X·${A.B} 포함), A + B, 이름(USERS), Owner.NAME 을 프로젝트의 val·const val 초기값으로 푼다.
+     * 이름은 자기 클래스·바깥 클래스·상위 타입, 같은 패키지의 파일 최상위 순으로 찾는다. 모르면 빈 값
+     */
+    public Optional<String> constantValue(KotlinType context, String expression) {
+        return Optional.ofNullable(evaluate(context, expression, 0));
+    }
+
+    /** 문자열 내용(따옴표 없이, 템플릿 포함)을 푼다: "/api/$BASE" → /api/v1 */
+    public Optional<String> templateValue(KotlinType context, String content) {
+        return Optional.ofNullable(evaluate(context, "\"" + content + "\"", 0));
+    }
+
+    private String evaluate(KotlinType context, String expression, int depth) {
+        if (expression == null || depth > MAX_CONSTANT_DEPTH) {
+            return null;
+        }
+        String expr = expression.strip();
+        while (expr.startsWith("(") && expr.endsWith(")")) {
+            expr = expr.substring(1, expr.length() - 1).strip();
+        }
+        List<String> parts = splitPlus(expr);
+        if (parts.size() > 1) {
+            StringBuilder sb = new StringBuilder();
+            for (String part : parts) {
+                String value = evaluate(context, part, depth + 1);
+                if (value == null) {
+                    return null;
+                }
+                sb.append(value);
+            }
+            return sb.toString();
+        }
+        if (expr.length() >= 2 && expr.startsWith("\"") && expr.endsWith("\"")) {
+            String content = expr.substring(1, expr.length() - 1);
+            java.util.regex.Matcher m = TEMPLATE.matcher(content);
+            StringBuilder sb = new StringBuilder();
+            while (m.find()) {
+                String value = evaluate(context, m.group(1) != null ? m.group(1) : m.group(2), depth + 1);
+                if (value == null) {
+                    return null;
+                }
+                m.appendReplacement(sb, java.util.regex.Matcher.quoteReplacement(value));
+            }
+            m.appendTail(sb);
+            return sb.toString();
+        }
+        if (!expr.matches("[A-Za-z_][\\w.]*")) {
+            return null;
+        }
+        int dot = expr.lastIndexOf('.');
+        if (dot < 0) {
+            for (KotlinType scope : constantScopes(context)) {
+                String value = constantIn(scope, expr, depth);
+                if (value != null) {
+                    return value;
+                }
+            }
+            return null;
+        }
+        String owner = resolve(context.file(), expr.substring(0, dot));
+        KotlinType ownerType = owner == null ? null : types.get(owner);
+        return ownerType == null ? null : constantIn(ownerType, expr.substring(dot + 1), depth);
+    }
+
+    private String constantIn(KotlinType type, String name, int depth) {
+        String initializer = constants.getOrDefault(type.fqn(), Map.of()).get(name);
+        return initializer == null ? null : evaluate(type, initializer, depth + 1);
+    }
+
+    /** 자기 클래스, 바깥 클래스, 상위 타입, 같은 패키지의 파일 최상위 */
+    private List<KotlinType> constantScopes(KotlinType context) {
+        List<KotlinType> result = new ArrayList<>();
+        result.add(context);
+        String fqn = context.fqn();
+        for (int dot = fqn.lastIndexOf('.'); dot > 0; dot = fqn.lastIndexOf('.')) {
+            fqn = fqn.substring(0, dot);
+            KotlinType outer = types.get(fqn);
+            if (outer != null) {
+                result.add(outer);
+            }
+        }
+        result.addAll(ancestors(context));
+        String pkg = context.file().packageName;
+        types.values().stream()
+                .filter(t -> t != null && t.declaration().equals("file") && t.file().packageName.equals(pkg))
+                .forEach(result::add);
+        return result;
+    }
+
+    /** 따옴표 밖의 + 로 나눈다 */
+    private static List<String> splitPlus(String expr) {
+        List<String> parts = new ArrayList<>();
+        boolean quoted = false;
+        int depth = 0;
+        int start = 0;
+        for (int i = 0; i < expr.length(); i++) {
+            char c = expr.charAt(i);
+            if (c == '"' && (i == 0 || expr.charAt(i - 1) != '\\')) {
+                quoted = !quoted;
+            } else if (!quoted && (c == '(' || c == '{')) {
+                depth++;
+            } else if (!quoted && (c == ')' || c == '}')) {
+                depth--;
+            } else if (!quoted && depth == 0 && c == '+') {
+                parts.add(expr.substring(start, i));
+                start = i + 1;
+            }
+        }
+        parts.add(expr.substring(start));
+        return parts;
     }
 
     private KotlinFunction function(KotlinFile file, KotlinType owner, TSNode decl) {

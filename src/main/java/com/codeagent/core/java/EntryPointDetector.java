@@ -43,12 +43,23 @@ public class EntryPointDetector {
         }
     }
 
+    /** 경로 상수(Paths.USERS)를 값으로 풀 때. 없으면 ${Paths.USERS} 로 남긴다 */
+    private final JavaConstants constants;
+
+    public EntryPointDetector() {
+        this(null);
+    }
+
+    public EntryPointDetector(JavaProject project) {
+        this.constants = project == null ? null : new JavaConstants(project);
+    }
+
     public List<EntryPoint> detect(TypeInfo type) {
         if (findAnnotation(type.decl(), CONTROLLER_ANNOTATIONS).isEmpty()) {
             return List.of();
         }
         List<String> classPaths = findAnnotation(type.decl(), Set.of("RequestMapping"))
-                .map(EntryPointDetector::paths)
+                .map(a -> paths(a, type))
                 .orElse(List.of(""));
 
         List<EntryPoint> result = new ArrayList<>();
@@ -63,7 +74,7 @@ public class EntryPointDetector {
                 }
                 List<String> httpMethods = fixedMethod.isEmpty() ? requestMethods(annotation) : List.of(fixedMethod);
                 for (String classPath : classPaths) {
-                    for (String methodPath : paths(annotation)) {
+                    for (String methodPath : paths(annotation, type)) {
                         for (String httpMethod : httpMethods) {
                             result.add(new EntryPoint(httpMethod, joinPath(classPath, methodPath), method));
                         }
@@ -80,37 +91,44 @@ public class EntryPointDetector {
                 .findFirst();
     }
 
-    private static List<String> paths(AnnotationExpr annotation) {
+    private List<String> paths(AnnotationExpr annotation, TypeInfo type) {
         List<String> paths = new ArrayList<>();
         if (annotation instanceof SingleMemberAnnotationExpr single) {
-            paths.addAll(values(single.getMemberValue()));
+            paths.addAll(values(single.getMemberValue(), type));
         } else if (annotation instanceof NormalAnnotationExpr normal) {
             for (MemberValuePair pair : normal.getPairs()) {
                 String name = pair.getNameAsString();
                 if (name.equals("value") || name.equals("path")) {
-                    paths.addAll(values(pair.getValue()));
+                    paths.addAll(values(pair.getValue(), type));
                 }
             }
         }
         return paths.isEmpty() ? List.of("") : paths;
     }
 
-    private static List<String> requestMethods(AnnotationExpr annotation) {
+    private List<String> requestMethods(AnnotationExpr annotation) {
         List<String> methods = new ArrayList<>();
         if (annotation instanceof NormalAnnotationExpr normal) {
             normal.getPairs().stream()
                     .filter(p -> p.getNameAsString().equals("method"))
-                    .forEach(p -> methods.addAll(values(p.getValue())));
+                    .forEach(p -> methods.addAll(values(p.getValue(), null)));
         }
         return methods.isEmpty() ? List.of("ANY") : methods;
     }
 
-    private static List<String> values(Expression expr) {
+    /** @param context 상수를 풀 클래스 (요청 메서드처럼 풀 필요가 없으면 null) */
+    private List<String> values(Expression expr, TypeInfo context) {
         if (expr instanceof ArrayInitializerExpr array) {
-            return array.getValues().stream().flatMap(v -> values(v).stream()).toList();
+            return array.getValues().stream().flatMap(v -> values(v, context).stream()).toList();
         }
         if (expr instanceof StringLiteralExpr literal) {
             return List.of(literal.getValue());
+        }
+        if (constants != null && context != null) {
+            Optional<String> constant = constants.value(expr, context);
+            if (constant.isPresent()) {
+                return List.of(constant.get());
+            }
         }
         if (expr instanceof FieldAccessExpr field) {
             // RequestMethod.GET 은 GET 으로, 상수 경로는 ${Paths.USERS} 처럼 남긴다

@@ -71,7 +71,7 @@ repositories {
 }
 
 dependencies {
-    implementation 'com.codeagent:core-code-agent:0.10.0'   // bump the number to upgrade
+    implementation 'com.codeagent:core-code-agent:0.11.0'   // bump the number to upgrade
 }
 ```
 
@@ -103,10 +103,10 @@ Only the shared engine was pulled out, because a Spring Boot application cannot 
 ```
 cotcha-trail                                         consumers
 bump version in build.gradle
-git tag v0.10.0 && git push origin v0.10.0
+git tag v0.11.0 && git push origin v0.11.0
    │ GitHub Actions: tests on 4 OSes, then ./gradlew publish
    ▼
-GitHub Packages  com.codeagent:core-code-agent:0.10.0  ◀── implementation '…:0.10.0'
+GitHub Packages  com.codeagent:core-code-agent:0.11.0  ◀── implementation '…:0.11.0'
                                                           Gradle downloads it at build time
 ```
 
@@ -197,6 +197,7 @@ Python notes:
 | 2-6 | Java ↔ Kotlin call links (`JavaKotlinInterop`), also in the default engine | ✅ Done (v0.8.0) |
 | 2-7 | Kotlin Spring entry points (`KotlinEntryPointDetector`): `@RestController`/`@Controller` with `@GetMapping`… and `@RequestMapping(value = […], method = […])`, same names and props as Java; also reads class annotations that tree-sitter-kotlin detaches from the class | ✅ Done (v0.9.0) |
 | 2-8 | WebFlux functional routers as entry points: Java `RouterFunctions.route(GET("/x"), h::get)`, `.andRoute`, `nest(path(…), …)`, the `route().GET(…).path(…, b -> …)` builder (`WebFluxRouteDetector`), and the Kotlin `router { }` / `coRouter { }` DSL with `"/api".nest { }` (`KotlinRouterDetector`). Handlers are method references or the first call in a lambda; unresolved handlers route to the router function | ✅ Done (v0.10.0) |
+| 2-9 | Constant paths: `@GetMapping(Paths.USERS)`, `GET(ApiPaths.ORDERS + "/x")`, static imports, Kotlin `const val` and string templates (`"$V2/users"`) resolve to their values in MVC mappings and routers (`JavaConstants`, `KotlinProject.constantValue`); unknown constants stay as `${expr}` | ✅ Done (v0.11.0) |
 | 2-1 | `JavaGraphSupport`: Java building blocks as public API, so other products (cotcha-pinch for Android) reuse parsing and call linking instead of copying them. No change in be/mcp output | ✅ Done (v0.3.0) |
 | 3 | TypeScript backend parser on the same plugin interface | ⏳ Planned |
 
@@ -294,10 +295,10 @@ cotcha-trail  [엔진, 라이브러리]  <── 의존 ── cotcha-net     [S
 ```
 cotcha-trail                                         쓰는 쪽
 build.gradle 의 version 올리기
-git tag v0.10.0 && git push origin v0.10.0
+git tag v0.11.0 && git push origin v0.11.0
    │ GitHub Actions: 4개 OS 테스트 → ./gradlew publish
    ▼
-GitHub Packages  com.codeagent:core-code-agent:0.10.0  ◀── implementation '…:0.10.0'
+GitHub Packages  com.codeagent:core-code-agent:0.11.0  ◀── implementation '…:0.11.0'
                                                           빌드할 때 Gradle 이 받아 옴
 ```
 
@@ -388,6 +389,7 @@ Python 참고:
 | 2-6 | Java ↔ Kotlin 호출 연결 (`JavaKotlinInterop`), 기본 엔진에도 적용 | ✅ 완료 (v0.8.0) |
 | 2-7 | Kotlin Spring 진입점(`KotlinEntryPointDetector`): `@RestController`·`@Controller` 의 `@GetMapping`… 과 `@RequestMapping(value = […], method = […])`, Java 와 같은 이름·props. tree-sitter-kotlin 이 클래스에서 떼어 읽은 애너테이션도 읽음 | ✅ 완료 (v0.9.0) |
 | 2-8 | WebFlux 함수형 라우터를 진입점으로: Java `RouterFunctions.route(GET("/x"), h::get)`·`.andRoute`·`nest(path(…), …)`·`route().GET(…).path(…, b -> …)` 빌더(`WebFluxRouteDetector`), Kotlin `router { }`·`coRouter { }` DSL 과 `"/api".nest { }`(`KotlinRouterDetector`). 처리 함수는 메서드 참조나 람다 안 첫 호출, 못 찾으면 라우터 함수로 잇는다 | ✅ 완료 (v0.10.0) |
+| 2-9 | 상수 경로: `@GetMapping(Paths.USERS)`, `GET(ApiPaths.ORDERS + "/x")`, static import, Kotlin `const val`·문자열 템플릿(`"$V2/users"`)을 MVC 매핑과 라우터에서 값으로 푼다(`JavaConstants`, `KotlinProject.constantValue`). 모르는 상수는 `${식}` 으로 남긴다 | ✅ 완료 (v0.11.0) |
 | 2-1 | `JavaGraphSupport`: 규칙이 붙지 않은 Java 부품을 공개 API 로. 다른 제품(안드로이드용 cotcha-pinch)이 파싱·호출 연결을 복사하지 않고 쓴다. be·mcp 결과는 그대로 | ✅ 완료 (v0.3.0) |
 | 3 | 같은 플러그인 구조로 TypeScript 백엔드 파서 | ⏳ 예정 |
 
