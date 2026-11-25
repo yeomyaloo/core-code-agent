@@ -183,6 +183,100 @@ class DjangoRootUrlconfTest {
         assertThat(entries()).containsExactly("ANY /blog/<int:pk> -> site.blog.views.post");
     }
 
+    @Test
+    void 쿠버네티스_Deployment_의_env_에서_찾는다() throws IOException {
+        site();
+        write("site/config/settings.py", "import os\nROOT_URLCONF = os.environ[\"DJANGO_URLCONF\"]\n");
+        write("deploy/k8s/base/apps/web/deployment.yaml", """
+                apiVersion: apps/v1
+                kind: Deployment
+                metadata:
+                  name: web
+                spec:
+                  template:
+                    spec:
+                      containers:
+                        - name: web
+                          image: shop:1.0
+                          env:
+                            - name: DEBUG
+                              value: "legacy.urls"
+                            - name: DJANGO_URLCONF
+                              value: "config.urls"
+                """);
+
+        // 컨테이너 항목 아래의 다른 변수 값(legacy.urls)을 DJANGO_URLCONF 값으로 잘못 읽지 않는다
+        assertThat(entries()).containsExactly("ANY /blog/<int:pk> -> site.blog.views.post");
+    }
+
+    @Test
+    void configMapKeyRef_가_가리키는_ConfigMap_값을_찾고_Secret_data_는_읽지_않는다() throws IOException {
+        site();
+        write("site/config/settings.py", "import os\nROOT_URLCONF = os.environ[\"DJANGO_URLCONF\"]\n");
+        write("k8s/web.yml", """
+                apiVersion: v1
+                kind: ConfigMap
+                metadata:
+                  name: web-config
+                data:
+                  urlconf: config.urls
+                ---
+                apiVersion: v1
+                kind: Secret
+                metadata:
+                  name: web-secret
+                data:
+                  urlconf: bGVnYWN5LnVybHM=
+                ---
+                apiVersion: apps/v1
+                kind: Deployment
+                spec:
+                  template:
+                    spec:
+                      containers:
+                        - name: web
+                          env:
+                            - name: DJANGO_URLCONF
+                              valueFrom:
+                                configMapKeyRef:
+                                  name: web-config
+                                  key: urlconf
+                """);
+
+        assertThat(entries()).containsExactly("ANY /blog/<int:pk> -> site.blog.views.post");
+    }
+
+    @Test
+    void 한_줄로_쓴_env_에서_찾는다() throws IOException {
+        site();
+        write("site/config/settings.py", "import os\nROOT_URLCONF = os.environ[\"DJANGO_URLCONF\"]\n");
+        write("deploy/pod.yaml", """
+                apiVersion: v1
+                kind: Pod
+                spec:
+                  containers:
+                    - name: web
+                      env:
+                        - {name: DJANGO_URLCONF, value: config.urls}
+                """);
+
+        assertThat(entries()).containsExactly("ANY /blog/<int:pk> -> site.blog.views.post");
+    }
+
+    @Test
+    void Kustomize_literals_에서_찾는다() throws IOException {
+        site();
+        write("site/config/settings.py", "import os\nROOT_URLCONF = os.environ[\"KUSTOMIZE_URLCONF\"]\n");
+        write("deploy/overlays/prod/kustomization.yaml", """
+                configMapGenerator:
+                  - name: web-config
+                    literals:
+                      - KUSTOMIZE_URLCONF=config.urls
+                """);
+
+        assertThat(entries()).containsExactly("ANY /blog/<int:pk> -> site.blog.views.post");
+    }
+
     /** config/urls.py → blog, 그리고 어디에도 연결되지 않은 legacy/urls.py */
     private void site() throws IOException {
         write("site/config/urls.py", """

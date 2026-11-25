@@ -536,7 +536,7 @@ final class PythonWebFrameworks {
 
     /** 환경 변수 값: ${X:-기본값} 이면 기본값. 이름에 쓸 수 있는 글자(모듈 이름)만 */
     private static final String ENV_VALUE = "['\"]?(?:\\$\\{\\w+:?-([\\w.]+)\\}|([\\w.]+))['\"]?";
-    private static final int ENV_SEARCH_DEPTH = 4;
+    private static final int ENV_SEARCH_DEPTH = 6;
     private static final long ENV_FILE_MAX_BYTES = 200_000;
 
     /**
@@ -546,6 +546,8 @@ final class PythonWebFrameworks {
      *   <li>docker-compose(.yml/.yaml, compose.yml, docker-compose.*.yml)의 environment: 목록(- NAME=값)과 맵(NAME: 값),
      *       그리고 env_file: 로 가리킨 파일</li>
      *   <li>Dockerfile 의 ENV NAME=값 / ENV NAME 값</li>
+     *   <li>Kubernetes 매니페스트의 컨테이너 env, configMapKeyRef·secretKeyRef 로 가리킨 ConfigMap·Secret 값,
+     *       ConfigMap data·Secret stringData, Kustomize configMapGenerator 의 literals 와 envs 파일</li>
      * </ul>
      */
     private List<String> dotenv(String name) {
@@ -567,9 +569,15 @@ final class PythonWebFrameworks {
             } else if (isComposeFile(fileName)) {
                 values.addAll(matches(lines, composeList));
                 values.addAll(matches(lines, composeMap));
-                envFiles.addAll(composeEnvFiles(file, lines));
+                envFiles.addAll(fileReferences(file, lines, "env_file"));
             } else if (fileName.startsWith("Dockerfile") || fileName.endsWith(".Dockerfile")) {
                 values.addAll(matches(lines, dockerEnv));
+            } else if (fileName.matches("kustomization\\.ya?ml")) {
+                // configMapGenerator: literals: - NAME=값 / envs: - app.env
+                values.addAll(matches(lines, composeList));
+                envFiles.addAll(fileReferences(file, lines, "envs"));
+            } else if (fileName.matches(".*\\.ya?ml") && isKubernetes(lines)) {
+                values.addAll(kubernetesValues(lines, name));
             }
         }
         for (java.nio.file.Path file : envFiles) {
@@ -578,11 +586,124 @@ final class PythonWebFrameworks {
         return List.copyOf(values);
     }
 
+    /** k8s·kustomize 파일로 볼 YAML 인지: apiVersion·kind 가 있는 매니페스트 */
+    private static boolean isKubernetes(List<String> lines) {
+        boolean api = false;
+        boolean kind = false;
+        for (String line : lines) {
+            api |= line.startsWith("apiVersion:");
+            kind |= line.startsWith("kind:");
+        }
+        return api && kind;
+    }
+
+    /**
+     * 매니페스트에서 NAME 의 값: 컨테이너 env 의 - name: NAME / value: 값 (한 줄 {name: NAME, value: 값} 도),
+     * valueFrom.configMapKeyRef·secretKeyRef 면 그 키를 ConfigMap data·Secret stringData 에서,
+     * envFrom 으로 통째로 넣는 경우를 위해 ConfigMap data·Secret stringData 의 NAME 키도 본다
+     */
+    private static List<String> kubernetesValues(List<String> lines, String name) {
+        List<List<String>> documents = new ArrayList<>();
+        List<String> current = new ArrayList<>();
+        for (String line : lines) {
+            if (line.startsWith("---")) {
+                documents.add(current);
+                current = new ArrayList<>();
+            } else {
+                current.add(line);
+            }
+        }
+        documents.add(current);
+        List<List<String>> configs = documents.stream()
+                .filter(d -> d.stream().anyMatch(l -> l.matches("kind:\\s*(ConfigMap|Secret)\\s*(#.*)?")))
+                .toList();
+
+        Set<String> values = new LinkedHashSet<>(configValues(configs, name));
+        String quoted = java.util.regex.Pattern.quote(name);
+        java.util.regex.Pattern nameField = java.util.regex.Pattern.compile("name\\s*:\\s*['\"]?" + quoted + "['\"]?\\s*(?:#.*)?");
+        java.util.regex.Pattern valueField = java.util.regex.Pattern.compile("value\\s*:\\s*" + ENV_VALUE + "\\s*(?:#.*)?");
+        java.util.regex.Pattern keyField = java.util.regex.Pattern.compile("^\\s*key\\s*:\\s*['\"]?([\\w.-]+)['\"]?\\s*(?:#.*)?$");
+        java.util.regex.Pattern flow = java.util.regex.Pattern.compile(
+                "\\{\\s*name\\s*:\\s*['\"]?" + quoted + "['\"]?\\s*,\\s*value\\s*:\\s*" + ENV_VALUE + "\\s*}");
+        java.util.regex.Pattern dash = java.util.regex.Pattern.compile("^(\\s*)-\\s+(\\S.*)$");
+        for (int i = 0; i < lines.size(); i++) {
+            java.util.regex.Matcher d = dash.matcher(lines.get(i));
+            if (!d.matches()) {
+                continue;
+            }
+            java.util.regex.Matcher f = flow.matcher(d.group(2));
+            if (f.find()) {
+                values.add(f.group(1) != null ? f.group(1) : f.group(2));
+                continue;
+            }
+            // 이 목록 항목의 바로 아래 필드(같은 들여쓰기)만 본다. 더 깊은 줄은 안쪽 목록이다
+            int column = d.group(1).length() + lines.get(i).substring(d.group(1).length()).indexOf(d.group(2).charAt(0));
+            List<String> fields = new ArrayList<>(List.of(d.group(2).strip()));
+            List<String> nested = new ArrayList<>();
+            for (int j = i + 1; j < lines.size(); j++) {
+                String line = lines.get(j);
+                if (line.isBlank()) {
+                    continue;
+                }
+                int indent = line.length() - line.stripLeading().length();
+                if (indent < column) {
+                    break;
+                }
+                if (indent == column) {
+                    fields.add(line.strip());
+                } else {
+                    nested.add(line);
+                }
+            }
+            if (fields.stream().noneMatch(l -> nameField.matcher(l).matches())) {
+                continue;
+            }
+            for (String field : fields) {
+                java.util.regex.Matcher v = valueField.matcher(field);
+                if (v.matches()) {
+                    values.add(v.group(1) != null ? v.group(1) : v.group(2));
+                }
+            }
+            if (fields.stream().anyMatch(l -> l.startsWith("valueFrom"))) {
+                for (String line : nested) {
+                    java.util.regex.Matcher k = keyField.matcher(line);
+                    if (k.matches()) {
+                        values.addAll(configValues(configs, k.group(1)));
+                    }
+                }
+            }
+        }
+        return List.copyOf(values);
+    }
+
+    /** ConfigMap data·Secret stringData 의 KEY: 값 (Secret data 는 base64 라 보지 않는다) */
+    private static List<String> configValues(List<List<String>> configs, String key) {
+        java.util.regex.Pattern entry = java.util.regex.Pattern.compile(
+                "^\\s+['\"]?" + java.util.regex.Pattern.quote(key) + "['\"]?\\s*:\\s*" + ENV_VALUE + "\\s*(?:#.*)?$");
+        List<String> values = new ArrayList<>();
+        for (List<String> config : configs) {
+            boolean secret = config.stream().anyMatch(l -> l.matches("kind:\\s*Secret\\s*(#.*)?"));
+            String section = null;
+            for (String line : config) {
+                if (!line.isEmpty() && !Character.isWhitespace(line.charAt(0))) {
+                    section = line.replaceAll(":.*", "").strip();
+                    continue;
+                }
+                boolean readable = secret ? "stringData".equals(section) : "data".equals(section);
+                java.util.regex.Matcher m = entry.matcher(line);
+                if (readable && m.matches()) {
+                    values.add(m.group(1) != null ? m.group(1) : m.group(2));
+                }
+            }
+        }
+        return values;
+    }
+
     private static boolean isComposeFile(String fileName) {
         return fileName.matches("(docker-)?compose([.-][\\w.-]+)?\\.ya?ml");
     }
 
-    /** 저장소 안의 .env·compose·Dockerfile 파일 (node_modules·.git 제외, 심볼릭 링크는 따라가지 않음) */
+    /** 저장소 안의 .env·compose·Dockerfile·YAML 파일 (node_modules·.git 제외, 심볼릭 링크는 따라가지 않음) */
     private List<java.nio.file.Path> configFiles() {
         try (java.util.stream.Stream<java.nio.file.Path> files = java.nio.file.Files.walk(root, ENV_SEARCH_DEPTH)) {
             return files.filter(java.nio.file.Files::isRegularFile)
@@ -592,7 +713,8 @@ final class PythonWebFrameworks {
                     })
                     .filter(f -> {
                         String n = f.getFileName().toString();
-                        return n.startsWith(".env") || isComposeFile(n) || n.startsWith("Dockerfile") || n.endsWith(".Dockerfile");
+                        return n.startsWith(".env") || isComposeFile(n) || n.startsWith("Dockerfile") || n.endsWith(".Dockerfile")
+                                || n.endsWith(".yaml") || n.endsWith(".yml");
                     })
                     .sorted()
                     .toList();
@@ -601,11 +723,11 @@ final class PythonWebFrameworks {
         }
     }
 
-    /** env_file: .env.prod / env_file: [ - a.env, - path: b.env ] 로 가리킨 파일 (저장소 밖은 무시) */
-    private List<java.nio.file.Path> composeEnvFiles(java.nio.file.Path compose, List<String> lines) {
+    /** compose 의 env_file:, kustomize 의 envs: 처럼 key: 파일 / key: [ - a.env, - path: b.env ] 로 가리킨 파일 (저장소 밖은 무시) */
+    private List<java.nio.file.Path> fileReferences(java.nio.file.Path compose, List<String> lines, String key) {
         List<java.nio.file.Path> result = new ArrayList<>();
-        java.util.regex.Pattern inline = java.util.regex.Pattern.compile("^(\\s*)env_file\\s*:\\s*['\"]?([^'\"\\s#\\[]+)['\"]?\\s*(?:#.*)?$");
-        java.util.regex.Pattern block = java.util.regex.Pattern.compile("^(\\s*)env_file\\s*:\\s*(?:#.*)?$");
+        java.util.regex.Pattern inline = java.util.regex.Pattern.compile("^(\\s*)" + key + "\\s*:\\s*['\"]?([^'\"\\s#\\[]+)['\"]?\\s*(?:#.*)?$");
+        java.util.regex.Pattern block = java.util.regex.Pattern.compile("^(\\s*)" + key + "\\s*:\\s*(?:#.*)?$");
         java.util.regex.Pattern item = java.util.regex.Pattern.compile("^(\\s*)-\\s*(?:path\\s*:\\s*)?['\"]?([^'\"\\s#]+)['\"]?\\s*(?:#.*)?$");
         for (int i = 0; i < lines.size(); i++) {
             java.util.regex.Matcher m = inline.matcher(lines.get(i));

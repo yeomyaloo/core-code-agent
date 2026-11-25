@@ -71,7 +71,7 @@ repositories {
 }
 
 dependencies {
-    implementation 'com.codeagent:core-code-agent:0.15.0'   // bump the number to upgrade
+    implementation 'com.codeagent:core-code-agent:0.16.0'   // bump the number to upgrade
 }
 ```
 
@@ -103,10 +103,10 @@ Only the shared engine was pulled out, because a Spring Boot application cannot 
 ```
 cotcha-trail                                         consumers
 bump version in build.gradle
-git tag v0.15.0 && git push origin v0.15.0
+git tag v0.16.0 && git push origin v0.16.0
    │ GitHub Actions: tests on 4 OSes, then ./gradlew publish
    ▼
-GitHub Packages  com.codeagent:core-code-agent:0.15.0  ◀── implementation '…:0.15.0'
+GitHub Packages  com.codeagent:core-code-agent:0.16.0  ◀── implementation '…:0.16.0'
                                                           Gradle downloads it at build time
 ```
 
@@ -202,6 +202,7 @@ Python notes:
 | 2-11 | Django `ROOT_URLCONF`: entry points start from the urls module named in settings (all settings variants), so urls files that nothing connects are left out; without it, every urls module that is not included elsewhere is a root | ✅ Done (v0.13.0) |
 | 2-12 | `ROOT_URLCONF` from the environment: `os.environ.get`/`os.getenv` defaults, django-environ `env(…, default=)`, python-decouple `config(…, default=)`, `os.environ["X"]` looked up in `.env*` files, plus module variables, `a if DEBUG else b`, `+` and f-strings | ✅ Done (v0.14.0) |
 | 2-13 | Environment values also from docker-compose (`environment:` list and map, `${X:-default}`, files named by `env_file:`) and Dockerfile `ENV` | ✅ Done (v0.15.0) |
+| 2-14 | Environment values also from Kubernetes manifests (container `env`, including the one-line form; `configMapKeyRef`/`secretKeyRef` into ConfigMap `data` / Secret `stringData`; `envFrom` keys) and Kustomize `configMapGenerator` (`literals`, `envs` files); search depth 6 | ✅ Done (v0.16.0) |
 | 2-1 | `JavaGraphSupport`: Java building blocks as public API, so other products (cotcha-pinch for Android) reuse parsing and call linking instead of copying them. No change in be/mcp output | ✅ Done (v0.3.0) |
 | 3 | TypeScript backend parser on the same plugin interface | ⏳ Planned |
 
@@ -299,10 +300,10 @@ cotcha-trail  [엔진, 라이브러리]  <── 의존 ── cotcha-net     [S
 ```
 cotcha-trail                                         쓰는 쪽
 build.gradle 의 version 올리기
-git tag v0.15.0 && git push origin v0.15.0
+git tag v0.16.0 && git push origin v0.16.0
    │ GitHub Actions: 4개 OS 테스트 → ./gradlew publish
    ▼
-GitHub Packages  com.codeagent:core-code-agent:0.15.0  ◀── implementation '…:0.15.0'
+GitHub Packages  com.codeagent:core-code-agent:0.16.0  ◀── implementation '…:0.16.0'
                                                           빌드할 때 Gradle 이 받아 옴
 ```
 
@@ -398,6 +399,7 @@ Python 참고:
 | 2-11 | Django `ROOT_URLCONF`: settings 가 가리키는 urls 모듈(설정 파일이 여럿이면 모두)에서 시작해서, 어디에도 연결되지 않은 urls 파일은 뺀다. 없으면 다른 곳에서 include 하지 않은 urls 모듈을 모두 시작점으로 | ✅ 완료 (v0.13.0) |
 | 2-12 | 환경 변수로 정한 `ROOT_URLCONF`: `os.environ.get`·`os.getenv` 기본값, django-environ `env(…, default=)`, python-decouple `config(…, default=)`, `os.environ["X"]` 는 `.env*` 파일에서, 그리고 모듈 변수, `a if DEBUG else b`, `+`, f-string | ✅ 완료 (v0.14.0) |
 | 2-13 | 환경 변수 값을 docker-compose(`environment:` 목록·맵, `${X:-기본값}`, `env_file:` 로 가리킨 파일)와 Dockerfile `ENV` 에서도 찾는다 | ✅ 완료 (v0.15.0) |
+| 2-14 | 환경 변수 값을 Kubernetes 매니페스트(컨테이너 `env`, 한 줄 형식 포함, `configMapKeyRef`·`secretKeyRef` 로 가리킨 ConfigMap `data`·Secret `stringData`, `envFrom` 키)와 Kustomize `configMapGenerator`(`literals`, `envs` 파일)에서도 찾는다. 찾는 깊이 6 | ✅ 완료 (v0.16.0) |
 | 2-1 | `JavaGraphSupport`: 규칙이 붙지 않은 Java 부품을 공개 API 로. 다른 제품(안드로이드용 cotcha-pinch)이 파싱·호출 연결을 복사하지 않고 쓴다. be·mcp 결과는 그대로 | ✅ 완료 (v0.3.0) |
 | 3 | 같은 플러그인 구조로 TypeScript 백엔드 파서 | ⏳ 예정 |
 
