@@ -122,6 +122,67 @@ class DjangoRootUrlconfTest {
                 "ANY /p/<int:pk> -> site.blog.views.post");
     }
 
+    @Test
+    void docker_compose_의_environment_목록과_기본값에서_찾는다() throws IOException {
+        site();
+        write("site/config/settings.py", "import os\nROOT_URLCONF = os.environ[\"DJANGO_URLCONF\"]\n");
+        write("docker-compose.yml", """
+                services:
+                  web:
+                    image: shop
+                    environment:
+                      - DEBUG=0
+                      - DJANGO_URLCONF=${DJANGO_URLCONF:-config.urls}
+                """);
+
+        assertThat(entries()).containsExactly("ANY /blog/<int:pk> -> site.blog.views.post");
+    }
+
+    @Test
+    void docker_compose_의_env_file_에서_찾는다() throws IOException {
+        site();
+        write("site/config/settings.py", "import os\nROOT_URLCONF = os.getenv(\"URLCONF\")\n");
+        write("deploy/compose.prod.yaml", """
+                services:
+                  web:
+                    env_file:
+                      - ../deploy/prod.env   # 운영 값
+                      - path: ../missing.env
+                    environment:
+                      LOG_LEVEL: info
+                """);
+        write("deploy/prod.env", "URLCONF=config.urls\n");
+
+        assertThat(entries()).containsExactly("ANY /blog/<int:pk> -> site.blog.views.post");
+    }
+
+    @Test
+    void docker_compose_의_environment_맵에서_찾는다() throws IOException {
+        site();
+        write("site/config/settings.py", "import os\nROOT_URLCONF = os.getenv(\"URLCONF\")\n");
+        write("compose.yml", """
+                services:
+                  api:
+                    environment:
+                      "URLCONF": "config.urls"
+                """);
+
+        assertThat(entries()).containsExactly("ANY /blog/<int:pk> -> site.blog.views.post");
+    }
+
+    @Test
+    void Dockerfile_의_ENV_에서_찾는다() throws IOException {
+        site();
+        write("site/config/settings.py", "import os\nROOT_URLCONF = os.environ[\"DJANGO_URLCONF\"]\n");
+        write("site/Dockerfile", """
+                FROM python:3.12-slim
+                ENV PYTHONUNBUFFERED=1 DJANGO_URLCONF=config.urls
+                CMD ["gunicorn", "config.wsgi"]
+                """);
+
+        assertThat(entries()).containsExactly("ANY /blog/<int:pk> -> site.blog.views.post");
+    }
+
     /** config/urls.py → blog, 그리고 어디에도 연결되지 않은 legacy/urls.py */
     private void site() throws IOException {
         write("site/config/urls.py", """

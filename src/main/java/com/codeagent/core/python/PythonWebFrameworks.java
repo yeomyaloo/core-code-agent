@@ -414,7 +414,7 @@ final class PythonWebFrameworks {
     /**
      * 모듈 최상위의 ROOT_URLCONF 가 가리키는 urls 모듈들 (dev·prod 설정이 다르면 모두).
      * 문자열, 같은 모듈의 변수, "a" if DEBUG else "b", + 와 f-string, 환경 변수(os.environ.get·os.getenv·environ.get 의 기본값,
-     * django-environ env(…, default=)·python-decouple config(…, default=), 기본값이 없으면 .env 파일의 값)를 푼다.
+     * django-environ env(…, default=)·python-decouple config(…, default=), 기본값이 없으면 .env·docker-compose·Dockerfile 의 값)를 푼다.
      * 하나도 못 찾으면 빈 목록
      */
     private List<PythonModule> rootUrlconfs() {
@@ -534,33 +534,133 @@ final class PythonWebFrameworks {
         return values;
     }
 
-    /** 저장소의 .env 계열 파일(.env, .env.example, .env.production …)에서 NAME=값 */
+    /** 환경 변수 값: ${X:-기본값} 이면 기본값. 이름에 쓸 수 있는 글자(모듈 이름)만 */
+    private static final String ENV_VALUE = "['\"]?(?:\\$\\{\\w+:?-([\\w.]+)\\}|([\\w.]+))['\"]?";
+    private static final int ENV_SEARCH_DEPTH = 4;
+    private static final long ENV_FILE_MAX_BYTES = 200_000;
+
+    /**
+     * 저장소에서 환경 변수 NAME 의 값을 찾는다 (배포 환경에만 있는 값은 알 수 없다).
+     * <ul>
+     *   <li>.env 계열 파일 (.env, .env.example, .env.production …): NAME=값</li>
+     *   <li>docker-compose(.yml/.yaml, compose.yml, docker-compose.*.yml)의 environment: 목록(- NAME=값)과 맵(NAME: 값),
+     *       그리고 env_file: 로 가리킨 파일</li>
+     *   <li>Dockerfile 의 ENV NAME=값 / ENV NAME 값</li>
+     * </ul>
+     */
     private List<String> dotenv(String name) {
         if (root == null) {
             return List.of();
         }
+        String quoted = java.util.regex.Pattern.quote(name);
+        java.util.regex.Pattern dotenvLine = java.util.regex.Pattern.compile("^\\s*(?:export\\s+)?" + quoted + "\\s*=\\s*" + ENV_VALUE + "\\s*(?:#.*)?$");
+        java.util.regex.Pattern composeList = java.util.regex.Pattern.compile("^\\s*-\\s*['\"]?" + quoted + "\\s*=\\s*" + ENV_VALUE + "\\s*(?:#.*)?$");
+        java.util.regex.Pattern composeMap = java.util.regex.Pattern.compile("^\\s*['\"]?" + quoted + "['\"]?\\s*:\\s*" + ENV_VALUE + "\\s*(?:#.*)?$");
+        java.util.regex.Pattern dockerEnv = java.util.regex.Pattern.compile("^\\s*ENV\\s+(?:.*\\s)?" + quoted + "(?:\\s*=\\s*|\\s+)" + ENV_VALUE + "(?:\\s.*)?$");
         Set<String> values = new LinkedHashSet<>();
-        java.util.regex.Pattern line = java.util.regex.Pattern.compile("^\\s*(?:export\\s+)?" + java.util.regex.Pattern.quote(name)
-                + "\\s*=\\s*['\"]?([\\w.]+)['\"]?\\s*(?:#.*)?$");
-        try (java.util.stream.Stream<java.nio.file.Path> files = java.nio.file.Files.walk(root, 4)) {
-            for (java.nio.file.Path file : files.filter(java.nio.file.Files::isRegularFile)
-                    .filter(f -> f.getFileName().toString().startsWith(".env"))
-                    .filter(f -> !f.toString().contains("node_modules") && !f.toString().contains(".git" + java.io.File.separator))
-                    .sorted().toList()) {
-                if (java.nio.file.Files.size(file) > 200_000) {
-                    continue;
-                }
-                for (String text : java.nio.file.Files.readAllLines(file, java.nio.charset.StandardCharsets.UTF_8)) {
-                    java.util.regex.Matcher m = line.matcher(text);
-                    if (m.matches()) {
-                        values.add(m.group(1));
-                    }
-                }
+        Set<java.nio.file.Path> envFiles = new LinkedHashSet<>();
+        for (java.nio.file.Path file : configFiles()) {
+            String fileName = file.getFileName().toString();
+            List<String> lines = readSmall(file);
+            if (fileName.startsWith(".env")) {
+                envFiles.add(file);
+            } else if (isComposeFile(fileName)) {
+                values.addAll(matches(lines, composeList));
+                values.addAll(matches(lines, composeMap));
+                envFiles.addAll(composeEnvFiles(file, lines));
+            } else if (fileName.startsWith("Dockerfile") || fileName.endsWith(".Dockerfile")) {
+                values.addAll(matches(lines, dockerEnv));
             }
-        } catch (java.io.IOException | java.io.UncheckedIOException e) {
-            // 못 읽는 파일은 건너뛴다 (UTF-8 이 아닌 파일 등)
+        }
+        for (java.nio.file.Path file : envFiles) {
+            values.addAll(matches(readSmall(file), dotenvLine));
         }
         return List.copyOf(values);
+    }
+
+    private static boolean isComposeFile(String fileName) {
+        return fileName.matches("(docker-)?compose([.-][\\w.-]+)?\\.ya?ml");
+    }
+
+    /** 저장소 안의 .env·compose·Dockerfile 파일 (node_modules·.git 제외, 심볼릭 링크는 따라가지 않음) */
+    private List<java.nio.file.Path> configFiles() {
+        try (java.util.stream.Stream<java.nio.file.Path> files = java.nio.file.Files.walk(root, ENV_SEARCH_DEPTH)) {
+            return files.filter(java.nio.file.Files::isRegularFile)
+                    .filter(f -> {
+                        String rel = root.relativize(f).toString().replace('\\', '/');
+                        return !rel.contains("node_modules/") && !rel.startsWith(".git/") && !rel.contains("/.git/");
+                    })
+                    .filter(f -> {
+                        String n = f.getFileName().toString();
+                        return n.startsWith(".env") || isComposeFile(n) || n.startsWith("Dockerfile") || n.endsWith(".Dockerfile");
+                    })
+                    .sorted()
+                    .toList();
+        } catch (java.io.IOException | java.io.UncheckedIOException e) {
+            return List.of();
+        }
+    }
+
+    /** env_file: .env.prod / env_file: [ - a.env, - path: b.env ] 로 가리킨 파일 (저장소 밖은 무시) */
+    private List<java.nio.file.Path> composeEnvFiles(java.nio.file.Path compose, List<String> lines) {
+        List<java.nio.file.Path> result = new ArrayList<>();
+        java.util.regex.Pattern inline = java.util.regex.Pattern.compile("^(\\s*)env_file\\s*:\\s*['\"]?([^'\"\\s#\\[]+)['\"]?\\s*(?:#.*)?$");
+        java.util.regex.Pattern block = java.util.regex.Pattern.compile("^(\\s*)env_file\\s*:\\s*(?:#.*)?$");
+        java.util.regex.Pattern item = java.util.regex.Pattern.compile("^(\\s*)-\\s*(?:path\\s*:\\s*)?['\"]?([^'\"\\s#]+)['\"]?\\s*(?:#.*)?$");
+        for (int i = 0; i < lines.size(); i++) {
+            java.util.regex.Matcher m = inline.matcher(lines.get(i));
+            if (m.matches()) {
+                addEnvFile(compose, m.group(2), result);
+                continue;
+            }
+            java.util.regex.Matcher b = block.matcher(lines.get(i));
+            if (!b.matches()) {
+                continue;
+            }
+            int indent = b.group(1).length();
+            for (int j = i + 1; j < lines.size(); j++) {
+                String line = lines.get(j);
+                if (line.isBlank()) {
+                    continue;
+                }
+                java.util.regex.Matcher it = item.matcher(line);
+                if (!it.matches() || it.group(1).length() < indent) {
+                    break;
+                }
+                addEnvFile(compose, it.group(2), result);
+            }
+        }
+        return result;
+    }
+
+    private void addEnvFile(java.nio.file.Path compose, String relative, List<java.nio.file.Path> out) {
+        java.nio.file.Path resolved = compose.getParent().resolve(relative).normalize();
+        if (resolved.startsWith(root) && java.nio.file.Files.isRegularFile(resolved) && !java.nio.file.Files.isSymbolicLink(resolved)) {
+            out.add(resolved);
+        }
+    }
+
+    private static List<String> matches(List<String> lines, java.util.regex.Pattern pattern) {
+        List<String> values = new ArrayList<>();
+        for (String line : lines) {
+            java.util.regex.Matcher m = pattern.matcher(line);
+            if (m.matches()) {
+                values.add(m.group(1) != null ? m.group(1) : m.group(2));
+            }
+        }
+        return values;
+    }
+
+    /** 크지 않은 UTF-8 텍스트 파일의 줄 (못 읽으면 빈 목록) */
+    private static List<String> readSmall(java.nio.file.Path file) {
+        try {
+            if (java.nio.file.Files.size(file) > ENV_FILE_MAX_BYTES) {
+                return List.of();
+            }
+            return java.nio.file.Files.readAllLines(file, java.nio.charset.StandardCharsets.UTF_8);
+        } catch (java.io.IOException | java.io.UncheckedIOException e) {
+            return List.of();
+        }
     }
 
     /** urlpatterns = […] 와 urlpatterns += … 의 식들 */
