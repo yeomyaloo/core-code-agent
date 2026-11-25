@@ -2,19 +2,26 @@ package com.codeagent.core.kotlin;
 
 import com.codeagent.core.LanguageParser;
 import com.codeagent.core.SourceFiles;
+import com.codeagent.core.android.AndroidDetector;
+import com.codeagent.core.android.AndroidManifest;
+import com.codeagent.core.android.AndroidSinkRules;
 import com.codeagent.core.model.CodeEdgeKind;
 import com.codeagent.core.model.CodeGraphDraft;
 import com.codeagent.core.model.CodeNodeKind;
+import com.codeagent.core.rules.SinkRule;
 import com.codeagent.core.rules.SinkRules;
 
 import java.nio.file.Path;
+import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
+import java.util.function.BiFunction;
 
 /**
  * Kotlin 파서 (tree-sitter). 구조·호출 관계와 서버 위험 지점 규칙(SinkRules)으로 그래프를 더한다.
- * Spring 컨트롤러(@RestController·@GetMapping 등)를 진입점으로 찾는다({@link KotlinEntryPointDetector}). 안드로이드처럼 진입점·규칙이 다른 제품은
- * {@link KotlinProject} 와 {@link KotlinGraphSupport} 를 직접 쓴다.
+ * Spring 컨트롤러(@RestController·@GetMapping 등)를 진입점으로 찾는다({@link KotlinEntryPointDetector}).
+ * 저장소에 AndroidManifest.xml 이 있으면 안드로이드 앱으로 보고 모바일 진입점·규칙({@link AndroidDetector}, {@link AndroidSinkRules})도 함께 적용한다.
  */
 public final class KotlinLanguage implements LanguageParser {
 
@@ -49,6 +56,16 @@ public final class KotlinLanguage implements LanguageParser {
     }
 
     public void build(KotlinProject project, KotlinGraphSupport support) {
+        // AndroidManifest.xml 이 있으면 안드로이드 앱으로 보고 모바일 진입점·규칙을 함께 적용한다
+        Optional<AndroidManifest> manifest = AndroidManifest.parse(project.root(), new ArrayList<>());
+        boolean android = manifest.isPresent();
+        BiFunction<String, String, Optional<SinkRule>> rules = android
+                ? (type, method) -> {
+                    Optional<SinkRule> server = SinkRules.match(type, method);
+                    return server.isPresent() ? server : AndroidSinkRules.match(type, method);
+                }
+                : SinkRules::match;
+
         project.types().forEach(support::addStructure);
         project.types().forEach(support::addOverrides);
         KotlinEntryPointDetector detector = new KotlinEntryPointDetector();
@@ -78,7 +95,10 @@ public final class KotlinLanguage implements LanguageParser {
                 draft.addEdge(entryKey, KotlinGraphSupport.methodKey(target), CodeEdgeKind.ROUTES_TO);
             }
         }
-        project.types().forEach(t -> t.functions().forEach(f -> support.addCalls(f, SinkRules::match, Map.of())));
+        project.types().forEach(t -> t.functions().forEach(f -> support.addCalls(f, rules, Map.of())));
+
+        // 안드로이드 외부 공격면: 소켓 진입점, 매니페스트 exported/딥링크/평문, 인증 없는 소켓 핸드셰이크, 토큰 저장
+        manifest.ifPresent(m -> new AndroidDetector(project, support).contribute(m));
     }
 
     /** Java 파서가 이 저장소의 Kotlin 을 이미 만들었다 */

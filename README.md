@@ -172,11 +172,17 @@ Node props shared with both servers: sinks have `category`, `cwe`, `api`, `metho
 Kotlin notes:
 - Parsed with tree-sitter (`tree-sitter-kotlin`, MIT), same native-library platforms as Python. Nodes carry `language=kotlin`.
 - `KotlinProject` (index) and `KotlinGraphSupport` (structure, overrides, call linking, sinks) are public so a product can add its own entry points and rules, like `JavaGraphSupport`.
+- When the repository has an `AndroidManifest.xml`, the default engine treats it as an Android app and adds the mobile attack surface itself (`android` package): socket entry points, manifest `exported`/deep-link entry points, and the CLEARTEXT / MISSING_AUTH / WEBVIEW_JS / TOKEN_STORAGE sinks (see the `android` notes below). A plain Kotlin/Spring repository (no manifest) is unchanged. cotcha-pinch still drives Kotlin directly for its own Android graph.
 - `SwiftProject` and `SwiftGraphSupport` do the same for Swift (tree-sitter): classes, structs, enums, protocols and extensions (merged into the extended type), functions keyed Swift-style as `Type#name(label:label:)`, overrides, call linking through declared types, constructors and singletons (`UserDefaults.standard`), and sinks. Swift is not in the default parsers, so the server's analysis is unchanged.
 - `ObjcProject` and `ObjcGraphSupport` do the same for Objective-C (tree-sitter): `@interface` in headers and `@implementation` / categories in `.m` files merge into one class, methods are keyed by selector (`AppDelegate#application:openURL:options:`), and messages (`[receiver selector:arg]`) and C function calls are linked through declared types, `alloc`/`init`, `instancetype` returns and class singletons (`[NSUserDefaults standardUserDefaults]`). Also not in the default parsers.
 - `SwiftObjcInterop` links calls across the two languages in one app with the compiler's naming rules: Swift `db.deletePayee(name)` → `-deletePayee:`, `PayeeDatabase(name:)` → `-initWithName:`, and Objective-C `[vault storeWithToken:x]` → Swift `store(token:)`. `connect(swiftSupport, objcSupport)` wires both directions, including Objective-C return types for Swift (`LegacyStore.shared().save(…)`). Explicit `@objc(name)` / `NS_SWIFT_NAME` renames and omitted needless words are not followed.
 - `JavaKotlinInterop` does the same for Java and Kotlin: Java → Kotlin functions (also `FileNameKt.top()`, `Foo.INSTANCE.bar()`, `Foo.Companion.make()`, property getters), Kotlin → Java methods and constructors, and type names across the two even without imports (same package). The default engine uses it: when a repository has both, the Java parser builds the Kotlin part too, so a Java Spring controller that calls a Kotlin service has a path to the Kotlin sink. Java-only repositories are analyzed exactly as before. `@JvmName`, `@JvmOverloads` defaults and extension functions called from Java are not followed.
 - No type inference: values of unknown type (chained calls, lambdas, generics) are not followed. Calls in property initializers outside functions are not scanned yet. Java ↔ Kotlin calls are not linked yet.
+
+Android notes (`android` package, only when `AndroidManifest.xml` is present):
+- `AndroidManifest` parses the manifest (XXE-safe), ignoring generated ones under `build/`: `usesCleartextTraffic` and `exported` components with their intent-filters and deep links. Launcher-only `MAIN`/`LAUNCHER` activities are not treated as external entry points.
+- `AndroidDetector` adds, on the Kotlin graph: socket entry points (functions that call `ServerSocket.accept()`, props `kind=socket`, `transport=tcp|tls`), manifest `exported` component entry points (`kind=android-component`), a CLEARTEXT sink for `usesCleartextTraffic` (props `mobile=true`), a MISSING_AUTH sink when a WebSocket handshake (`101 Switching Protocols` / `Sec-WebSocket-Accept`) is written in a class with no token/PIN/authorization check, and a TOKEN_STORAGE sink for `SharedPreferences` `putString` of a token-like key. `AndroidSinkRules` adds the TLS-less `ServerSocket` (CLEARTEXT) and `WebView.addJavascriptInterface` (WEBVIEW_JS) rules, merged with `SinkRules`.
+- The RFC6455 WebSocket handshake uses SHA-1 by design; `MessageDigest.getInstance("SHA-1")` next to a handshake signal is not a WEAK_CRYPTO sink. Other weak hashes are still flagged, and the algorithm is kept on the sink as `algorithm`.
 
 Python notes:
 - Parsed with [tree-sitter](https://tree-sitter.github.io/) through the [tree-sitter-ng](https://github.com/bonede/tree-sitter-ng) JNI binding (MIT). Files with syntax errors are still analyzed; the broken part is skipped and reported in `parseErrors`.
@@ -204,6 +210,7 @@ Python notes:
 | 2-13 | Environment values also from docker-compose (`environment:` list and map, `${X:-default}`, files named by `env_file:`) and Dockerfile `ENV` | ✅ Done (v0.15.0) |
 | 2-14 | Environment values also from Kubernetes manifests (container `env`, including the one-line form; `configMapKeyRef`/`secretKeyRef` into ConfigMap `data` / Secret `stringData`; `envFrom` keys) and Kustomize `configMapGenerator` (`literals`, `envs` files); search depth 6 | ✅ Done (v0.16.0) |
 | 2-1 | `JavaGraphSupport`: Java building blocks as public API, so other products (cotcha-pinch for Android) reuse parsing and call linking instead of copying them. No change in be/mcp output | ✅ Done (v0.3.0) |
+| 2-15 | Android attack surface in the default engine (new `android` package), gated on `AndroidManifest.xml`: `ServerSocket.accept()` loops as socket entry points, manifest `exported` components / intent-filters / deep links as entry points, and mobile sinks — `usesCleartextTraffic` and TLS-less `ServerSocket` (CLEARTEXT), token/PIN-less socket (WebSocket) handshakes (MISSING_AUTH), `WebView.addJavascriptInterface` (WEBVIEW_JS), `SharedPreferences` token storage (TOKEN_STORAGE). RFC6455 WebSocket-handshake SHA-1 is no longer a WEAK_CRYPTO false positive | ✅ Done (v0.17.0) |
 | 3 | TypeScript backend parser on the same plugin interface | ⏳ Planned |
 
 ## Development
@@ -369,11 +376,17 @@ Gradle 이 좌표(`group` + `rootProject.name`)를 맞춰 보고 이 레포를 �
 Kotlin 참고:
 - tree-sitter(`tree-sitter-kotlin`, MIT)로 파싱한다. 네이티브 라이브러리 지원 플랫폼은 Python 과 같다. 노드에 `language=kotlin` 이 붙는다.
 - `KotlinProject`(색인)와 `KotlinGraphSupport`(구조, 상속, 호출 잇기, 위험 지점)는 공개라서 `JavaGraphSupport` 처럼 제품이 자기 진입점·규칙을 얹을 수 있다.
+- 저장소에 `AndroidManifest.xml` 이 있으면 기본 엔진이 안드로이드 앱으로 보고 모바일 공격면을 직접 더한다(`android` 패키지): 소켓 진입점, 매니페스트 `exported`·딥링크 진입점, CLEARTEXT / MISSING_AUTH / WEBVIEW_JS / TOKEN_STORAGE 위험 지점(아래 안드로이드 참고). 매니페스트가 없는 순수 Kotlin/Spring 저장소는 그대로다. cotcha-pinch 는 자기 안드로이드 그래프를 위해 여전히 Kotlin 을 직접 쓴다.
 - `SwiftProject`·`SwiftGraphSupport` 는 Swift(tree-sitter) 판이다. class·struct·enum·protocol·extension(원래 타입에 합침), `Type#name(label:label:)` 꼴 함수 이름, 상속, 적힌 타입·생성자·싱글턴(`UserDefaults.standard`)으로 호출 잇기, 위험 지점. 기본 파서에는 넣지 않아서 서버 분석은 그대로다.
 - `ObjcProject`·`ObjcGraphSupport` 는 Objective-C(tree-sitter) 판이다. 헤더의 `@interface` 와 `.m` 의 `@implementation`·카테고리를 클래스 하나로 합치고, 메서드는 셀렉터(`AppDelegate#application:openURL:options:`)로 부른다. 메시지(`[받는쪽 셀렉터:인자]`)와 C 함수 호출을 적힌 타입, `alloc`/`init`, `instancetype` 반환, 클래스 싱글턴(`[NSUserDefaults standardUserDefaults]`)으로 잇는다. 이것도 기본 파서에는 넣지 않는다.
 - `SwiftObjcInterop` 은 한 앱 안의 두 언어 사이 호출을 컴파일러 이름 규칙대로 잇는다: Swift `db.deletePayee(name)` → `-deletePayee:`, `PayeeDatabase(name:)` → `-initWithName:`, Objective-C `[vault storeWithToken:x]` → Swift `store(token:)`. `connect(swiftSupport, objcSupport)` 가 양쪽을 다 달고, Swift 쪽에 Objective-C 반환 타입도 알려 준다(`LegacyStore.shared().save(…)`). 직접 적은 `@objc(이름)`·`NS_SWIFT_NAME`, 필요 없는 단어 빼기는 따르지 않는다.
 - `JavaKotlinInterop` 은 Java 와 Kotlin 사이를 잇는다: Java → Kotlin 함수(`FileNameKt.top()`, `Foo.INSTANCE.bar()`, `Foo.Companion.make()`, 프로퍼티 getter 포함), Kotlin → Java 메서드·생성자, import 없이 같은 패키지에서 쓴 서로의 타입 이름. 기본 엔진도 쓴다: 저장소에 둘 다 있으면 Java 파서가 Kotlin 부분까지 만들어서, Kotlin 서비스를 부르는 Java Spring 컨트롤러에서 Kotlin 위험 지점까지 경로가 생긴다. Java 만 있는 저장소는 예전과 똑같다. `@JvmName`, `@JvmOverloads` 기본값, Java 에서 부른 확장 함수는 따르지 않는다.
 - 타입 추론은 하지 않는다: 타입을 모르는 값(이어진 호출, 람다, 제네릭)은 따라가지 않는다. 함수 밖 프로퍼티 초기값의 호출은 아직 보지 않는다. Java ↔ Kotlin 호출은 아직 잇지 않는다.
+
+안드로이드 참고(`android` 패키지, `AndroidManifest.xml` 이 있을 때만):
+- `AndroidManifest` 가 매니페스트를 파싱한다(XXE 안전, `build/` 아래 생성본은 건너뜀): `usesCleartextTraffic`, `exported` 컴포넌트와 intent-filter·딥링크. `MAIN`/`LAUNCHER` 만 있는 런처 액티비티는 외부 진입점으로 보지 않는다.
+- `AndroidDetector` 가 Kotlin 그래프에 더한다: 소켓 진입점(`ServerSocket.accept()` 를 부르는 함수, props `kind=socket`, `transport=tcp|tls`), 매니페스트 `exported` 컴포넌트 진입점(`kind=android-component`), `usesCleartextTraffic` 에 대한 CLEARTEXT 위험 지점(props `mobile=true`), 토큰/PIN/인증 검사가 클래스에 없는 WebSocket 핸드셰이크(`101 Switching Protocols`/`Sec-WebSocket-Accept`)에 대한 MISSING_AUTH, `SharedPreferences` 에 토큰류 키를 `putString` 하는 TOKEN_STORAGE. `AndroidSinkRules` 는 TLS 없는 `ServerSocket`(CLEARTEXT)·`WebView.addJavascriptInterface`(WEBVIEW_JS) 규칙을 `SinkRules` 와 합쳐 쓴다.
+- RFC6455 WebSocket 핸드셰이크는 원래 SHA-1 을 쓴다. 핸드셰이크 신호 옆의 `MessageDigest.getInstance("SHA-1")` 은 WEAK_CRYPTO 로 보지 않는다. 다른 약한 해시는 그대로 잡고, 알고리즘은 위험 지점에 `algorithm` 으로 남긴다.
 
 Python 참고:
 - [tree-sitter](https://tree-sitter.github.io/) 를 [tree-sitter-ng](https://github.com/bonede/tree-sitter-ng) JNI 바인딩(MIT)으로 쓴다. 문법 오류가 있는 파일도 오류 부분만 건너뛰고 분석하고 `parseErrors` 에 남긴다.
@@ -401,6 +414,7 @@ Python 참고:
 | 2-13 | 환경 변수 값을 docker-compose(`environment:` 목록·맵, `${X:-기본값}`, `env_file:` 로 가리킨 파일)와 Dockerfile `ENV` 에서도 찾는다 | ✅ 완료 (v0.15.0) |
 | 2-14 | 환경 변수 값을 Kubernetes 매니페스트(컨테이너 `env`, 한 줄 형식 포함, `configMapKeyRef`·`secretKeyRef` 로 가리킨 ConfigMap `data`·Secret `stringData`, `envFrom` 키)와 Kustomize `configMapGenerator`(`literals`, `envs` 파일)에서도 찾는다. 찾는 깊이 6 | ✅ 완료 (v0.16.0) |
 | 2-1 | `JavaGraphSupport`: 규칙이 붙지 않은 Java 부품을 공개 API 로. 다른 제품(안드로이드용 cotcha-pinch)이 파싱·호출 연결을 복사하지 않고 쓴다. be·mcp 결과는 그대로 | ✅ 완료 (v0.3.0) |
+| 2-15 | 기본 엔진에서 안드로이드 공격면 탐지(새 `android` 패키지), `AndroidManifest.xml` 이 있을 때만: `ServerSocket.accept()` 수락 루프를 소켓 진입점으로, 매니페스트 `exported` 컴포넌트·intent-filter·딥링크를 진입점으로, 그리고 모바일 위험 지점 — `usesCleartextTraffic`·TLS 없는 `ServerSocket`(CLEARTEXT), 토큰/PIN 검사 없는 소켓(WebSocket) 핸드셰이크(MISSING_AUTH), `WebView.addJavascriptInterface`(WEBVIEW_JS), `SharedPreferences` 토큰 저장(TOKEN_STORAGE). RFC6455 WebSocket 핸드셰이크용 SHA-1 은 더 이상 WEAK_CRYPTO 오탐이 아니다 | ✅ 완료 (v0.17.0) |
 | 3 | 같은 플러그인 구조로 TypeScript 백엔드 파서 | ⏳ 예정 |
 
 ## 개발

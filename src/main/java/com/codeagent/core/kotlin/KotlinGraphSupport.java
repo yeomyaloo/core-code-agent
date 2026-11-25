@@ -15,6 +15,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.function.BiFunction;
+import java.util.regex.Pattern;
 
 import static com.codeagent.core.kotlin.KotlinFile.firstChild;
 import static com.codeagent.core.kotlin.KotlinFile.namedChildren;
@@ -169,7 +170,10 @@ public final class KotlinGraphSupport {
             }
             Optional<SinkRule> rule = targetType == null ? Optional.empty() : rules.apply(targetType, method);
             if (rule.isPresent()) {
-                addSink(function, call, rule.get(), rule.get().api(method), extraProps);
+                Map<String, Object> props = cryptoAwareProps(function, call, rule.get(), method, extraProps);
+                if (props != null) {
+                    addSink(function, call, rule.get(), rule.get().api(method), props);
+                }
             } else if (targetType == null) {
                 unresolved++;
                 draft.countUnresolvedCall();
@@ -322,6 +326,56 @@ public final class KotlinGraphSupport {
                 ? firstChild(namedChildren(callee).get(namedChildren(callee).size() - 1), "simple_identifier")
                 : callee.getType().equals("simple_identifier") ? callee : null;
         return nameNode == null ? null : knownReturnTypes.get(file.text(nameNode));
+    }
+
+    /** RFC6455 WebSocket 핸드셰이크는 SHA-1 로 Sec-WebSocket-Accept 를 만든다 (프로토콜이 정한 것, 암호 약점 아님) */
+    private static final Pattern WS_HANDSHAKE = Pattern.compile(
+            "258EAFA5-E914-47DA-95CA-C5AB0DC85B11|Switching Protocols|Sec-WebSocket-Accept", Pattern.CASE_INSENSITIVE);
+
+    /**
+     * 약한 암호화(MessageDigest.getInstance 등) 위험 지점이면 알고리즘 이름을 props(algorithm)에 담는다.
+     * SHA-1 인데 같은 함수가 WebSocket 핸드셰이크를 만드는 거라면 위험 지점으로 보지 않는다(RFC6455 정상) → null 반환.
+     *
+     * @return 위험 지점에 쓸 props, 또는 위험 지점으로 보지 않으면 null
+     */
+    private Map<String, Object> cryptoAwareProps(KotlinFunction fn, TSNode call, SinkRule rule, String method,
+                                                 Map<String, Object> base) {
+        if (!"WEAK_CRYPTO".equals(rule.category()) || !"getInstance".equals(method)) {
+            return base;
+        }
+        String algorithm = firstStringArg(fn.owner().file(), call);
+        if (algorithm == null) {
+            return base;
+        }
+        if (algorithm.replace("-", "").equalsIgnoreCase("SHA1")
+                && WS_HANDSHAKE.matcher(fn.owner().file().text(fn.node())).find()) {
+            return null;
+        }
+        Map<String, Object> props = new LinkedHashMap<>(base);
+        props.put("algorithm", algorithm);
+        return props;
+    }
+
+    /** 호출의 첫 문자열 인자 내용 ("SHA-1" → SHA-1). 문자열이 아니면 null */
+    private static String firstStringArg(KotlinFile file, TSNode call) {
+        TSNode suffix = firstChild(call, "call_suffix");
+        TSNode args = suffix == null ? null : firstChild(suffix, "value_arguments");
+        if (args == null) {
+            return null;
+        }
+        List<TSNode> values = KotlinFile.children(args, "value_argument");
+        if (values.isEmpty()) {
+            return null;
+        }
+        TSNode literal = firstChild(values.get(0), "string_literal");
+        if (literal == null) {
+            return null;
+        }
+        String text = file.text(literal).strip();
+        if (text.length() >= 2 && text.startsWith("\"") && text.endsWith("\"")) {
+            text = text.substring(1, text.length() - 1);
+        }
+        return text;
     }
 
     private static int argumentCount(TSNode call) {

@@ -79,6 +79,11 @@ public final class KotlinProject {
     public record KotlinFunction(String key, String name, Map<String, String> paramTypes, int startLine, int endLine,
                                  TSNode node, KotlinType owner, List<String> annotations) {
 
+        /** 이 함수의 원문 (모바일 진입점·규칙처럼 함수 본문을 훑어야 하는 탐지에 쓴다) */
+        public String sourceText() {
+            return owner.file().text(node);
+        }
+
         @Override
         public boolean equals(Object o) {
             return o instanceof KotlinFunction other && key.equals(other.key);

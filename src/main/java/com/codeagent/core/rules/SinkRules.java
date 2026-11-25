@@ -114,9 +114,9 @@ public final class SinkRules {
      * 원격 코드 실행·데이터 유출로 바로 이어지는 분류가 앞이고, 약한 암호화·난수처럼 쓰임새를 봐야 하는 분류가 뒤다.
      */
     private static final List<String> CATEGORY_ORDER = List.of(
-            "COMMAND", "CODE_INJECTION", "EXPRESSION_INJECTION", "DESERIALIZATION", "JNDI", "SQL",
-            "XXE", "IDOR", "PATH", "SSRF", "XSS", "OPEN_REDIRECT", "HARDCODED_SECRET", "POSTMESSAGE", "TOKEN_STORAGE",
-            "WEAK_CRYPTO", "WEAK_RANDOM");
+            "COMMAND", "CODE_INJECTION", "WEBVIEW_JS", "EXPRESSION_INJECTION", "DESERIALIZATION", "JNDI", "SQL",
+            "XXE", "IDOR", "MISSING_AUTH", "PATH", "SSRF", "XSS", "OPEN_REDIRECT", "CLEARTEXT",
+            "HARDCODED_SECRET", "POSTMESSAGE", "TOKEN_STORAGE", "WEAK_CRYPTO", "WEAK_RANDOM");
 
     /** 분류의 조사 우선순위. 모르는 분류는 맨 뒤 */
     public static int priority(String category) {
