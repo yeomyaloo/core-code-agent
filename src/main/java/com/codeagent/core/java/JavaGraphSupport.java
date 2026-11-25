@@ -49,6 +49,23 @@ public final class JavaGraphSupport {
         this.knownReturnTypes = Map.copyOf(knownReturnTypes);
     }
 
+    /** 같은 앱의 다른 언어 메서드를 찾는 곳 ({@link com.codeagent.core.interop.JavaKotlinInterop}) */
+    public interface ForeignCalls {
+        /** type.name(인자 argCount 개) 를 받는 다른 언어 메서드의 그래프 키 */
+        List<String> find(String type, String name, int argCount);
+
+        /** 그 메서드의 반환 타입 FQN */
+        default Optional<String> returnType(String type, String name, int argCount) {
+            return Optional.empty();
+        }
+    }
+
+    private ForeignCalls foreign = (type, name, argCount) -> List.of();
+
+    public void foreignCalls(ForeignCalls foreign) {
+        this.foreign = foreign;
+    }
+
     public JavaProject project() {
         return project;
     }
@@ -104,7 +121,14 @@ public final class JavaGraphSupport {
         if (call.getScope().isEmpty()) {
             return linkProjectCall(caller, enclosingTypes(caller), call);
         }
-        return project.isProjectType(targetType) && linkProjectCall(caller, List.of(targetType), call);
+        if (project.isProjectType(targetType) && linkProjectCall(caller, List.of(targetType), call)) {
+            return true;
+        }
+        // 프로젝트 Java 타입이 아니면 같은 앱의 Kotlin 클래스일 수 있다
+        List<String> foreignTargets = targetType == null ? List.of()
+                : foreign.find(targetType, call.getNameAsString(), call.getArguments().size());
+        foreignTargets.forEach(t -> draft.addEdge(methodKey(caller), t, CodeEdgeKind.CALLS));
+        return !foreignTargets.isEmpty();
     }
 
     private boolean linkProjectCall(MethodInfo caller, List<String> candidateTypes, MethodCallExpr call) {
@@ -178,6 +202,14 @@ public final class JavaGraphSupport {
                 return createdType;
             }
         }
+        // Kotlin object·companion: Foo.INSTANCE.bar(), Foo.Companion.make()
+        if (scope instanceof FieldAccessExpr holder && holder.getScope() instanceof NameExpr holderName
+                && (holder.getNameAsString().equals("INSTANCE") || holder.getNameAsString().equals("Companion"))) {
+            String holderType = owner.resolver().resolve(holderName.getNameAsString());
+            if (holderType != null) {
+                return holderType;
+            }
+        }
         if (scope instanceof FieldAccessExpr field && field.getScope().isThisExpr()) {
             String fieldType = project.fieldType(owner, field.getNameAsString());
             if (fieldType != null) {
@@ -186,6 +218,14 @@ public final class JavaGraphSupport {
         }
         String solved = solve(scope);
         if (solved == null && scope instanceof MethodCallExpr call) {
+            // kotlinObject.getStore().save(): Kotlin 메서드·프로퍼티의 반환 타입
+            String inner = call.getScope().map(s -> typeOfScope(s, context)).orElse(null);
+            if (inner != null) {
+                Optional<String> returned = foreign.returnType(inner, call.getNameAsString(), call.getArguments().size());
+                if (returned.isPresent()) {
+                    return returned.get();
+                }
+            }
             return knownReturnTypes.get(call.getNameAsString());
         }
         return solved;

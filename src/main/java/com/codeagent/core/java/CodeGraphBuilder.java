@@ -46,6 +46,11 @@ public class CodeGraphBuilder {
         this.support = new JavaGraphSupport(project, draft, Map.of());
     }
 
+    /** 호출을 잇기 전에 다른 언어와 연결할 때 (JavaKotlinInterop.connect) */
+    public JavaGraphSupport support() {
+        return support;
+    }
+
     /** Java 그래프와 프론트엔드 위험 지점을 만든다 (예전 동작 그대로) */
     public CodeGraphDraft build() {
         buildJava();

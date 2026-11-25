@@ -98,6 +98,8 @@ public final class KotlinProject {
     private final Path root;
     private final List<KotlinFile> files = new ArrayList<>();
     private final Map<String, KotlinType> types = new LinkedHashMap<>();
+    /** 같은 앱의 다른 언어(Java) 타입: 같은 패키지·와일드카드 import 로 쓴 이름을 풀 때 쓴다 */
+    private final Set<String> externalTypes = new java.util.HashSet<>();
 
     private KotlinProject(Path root) {
         this.root = root;
@@ -234,6 +236,15 @@ public final class KotlinProject {
     }
 
     /** 이 파일에 적힌 짧은 타입 이름을 FQN 으로. 모르면 null */
+    /** 같은 앱의 Java 타입 이름을 더한다 (import 없이 같은 패키지에서 쓴 Java 클래스를 풀기 위해) */
+    public void addExternalTypes(Collection<String> fqns) {
+        externalTypes.addAll(fqns);
+    }
+
+    private boolean known(String fqn) {
+        return types.containsKey(fqn) || externalTypes.contains(fqn);
+    }
+
     public String resolve(KotlinFile file, String name) {
         if (name == null || name.isBlank()) {
             return null;
@@ -247,15 +258,15 @@ public final class KotlinProject {
             return imported + tail;
         }
         String samePackage = file.packageName.isEmpty() ? head : file.packageName + "." + head;
-        if (types.containsKey(samePackage + tail)) {
+        if (known(samePackage + tail)) {
             return samePackage + tail;
         }
-        if (types.containsKey(samePackage)) {
+        if (known(samePackage)) {
             return samePackage + tail;
         }
         for (String pkg : file.wildcardImports) {
             String candidate = pkg + "." + head;
-            if (types.containsKey(candidate) || isJdkType(candidate)) {
+            if (known(candidate) || isJdkType(candidate)) {
                 return candidate + tail;
             }
         }

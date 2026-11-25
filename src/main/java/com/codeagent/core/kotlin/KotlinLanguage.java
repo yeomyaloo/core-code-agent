@@ -29,12 +29,31 @@ public final class KotlinLanguage implements LanguageParser {
         return SourceFiles.any(root, KotlinProject.SKIP_DIRS, KotlinProject::isSource);
     }
 
+    /** Java 파서가 Kotlin 까지 같이 만든 저장소 (다시 만들지 않는다) */
+    private Path builtWithJava;
+
     @Override
     public void contribute(Path root, CodeGraphDraft draft, List<String> parseErrors) {
+        if (root.equals(builtWithJava)) {
+            return;
+        }
         KotlinProject project = KotlinProject.load(root, parseErrors);
-        KotlinGraphSupport support = new KotlinGraphSupport(project, draft, JDK_RETURN_TYPES);
+        build(project, support(project, draft));
+    }
+
+    /** 서버 규칙으로 Kotlin 그래프를 만드는 부품 (호출을 잇기 전에 Java 와 연결할 수 있게 따로 꺼낸다) */
+    public KotlinGraphSupport support(KotlinProject project, CodeGraphDraft draft) {
+        return new KotlinGraphSupport(project, draft, JDK_RETURN_TYPES);
+    }
+
+    public void build(KotlinProject project, KotlinGraphSupport support) {
         project.types().forEach(support::addStructure);
         project.types().forEach(support::addOverrides);
         project.types().forEach(t -> t.functions().forEach(f -> support.addCalls(f, SinkRules::match, Map.of())));
+    }
+
+    /** Java 파서가 이 저장소의 Kotlin 을 이미 만들었다 */
+    public void builtWithJava(Path root) {
+        this.builtWithJava = root;
     }
 }

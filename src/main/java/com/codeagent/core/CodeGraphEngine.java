@@ -36,7 +36,9 @@ public final class CodeGraphEngine {
 
     /** 기본 파서. 순서대로 그래프에 더한다 (Java 저장소의 결과가 예전과 같도록 프론트엔드가 마지막) */
     public static List<LanguageParser> defaultParsers() {
-        return List.of(new JavaLanguage(), new PythonLanguage(), new KotlinLanguage(), new FrontendGraph());
+        // Java 와 Kotlin 이 같이 있으면 Java 파서가 Kotlin 도 만들고 서로의 호출을 잇는다 (JavaKotlinInterop)
+        KotlinLanguage kotlin = new KotlinLanguage();
+        return List.of(new JavaLanguage(kotlin), new PythonLanguage(), kotlin, new FrontendGraph());
     }
 
     /** 저장소 루트를 읽어 코드 그래프를 만든다. 분석 대상 코드는 읽기만 한다. */

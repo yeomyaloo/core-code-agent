@@ -43,6 +43,23 @@ public final class KotlinGraphSupport {
         this.knownReturnTypes = Map.copyOf(knownReturnTypes);
     }
 
+    /** 같은 앱의 다른 언어 메서드를 찾는 곳 ({@link com.codeagent.core.interop.JavaKotlinInterop}) */
+    public interface ForeignCalls {
+        /** type.name(인자 argCount 개) 를 받는 다른 언어 메서드의 그래프 키 */
+        List<String> find(String type, String name, int argCount);
+
+        /** 그 메서드의 반환 타입 FQN */
+        default Optional<String> returnType(String type, String name, int argCount) {
+            return Optional.empty();
+        }
+    }
+
+    private ForeignCalls foreign = (type, name, argCount) -> List.of();
+
+    public void foreignCalls(ForeignCalls foreign) {
+        this.foreign = foreign;
+    }
+
     // ---- 구조 ----
 
     public void addStructure(KotlinType type) {
@@ -103,6 +120,12 @@ public final class KotlinGraphSupport {
                 if (!name.isEmpty() && Character.isUpperCase(name.charAt(0))) {
                     String type = project.resolve(file, name);
                     if (type != null) {
+                        // 같은 앱의 Java 클래스 생성자
+                        List<String> constructors = foreign.find(type, "<init>", args);
+                        if (!constructors.isEmpty()) {
+                            constructors.forEach(t -> draft.addEdge(methodKey(function), t, CodeEdgeKind.CALLS));
+                            continue;
+                        }
                         Optional<SinkRule> rule = rules.apply(type, "<init>");
                         if (rule.isPresent()) {
                             addSink(function, call, rule.get(), rule.get().api("<init>"), extraProps);
@@ -129,6 +152,14 @@ public final class KotlinGraphSupport {
                 List<KotlinFunction> targets = project.findFunctions(targetType, method, args);
                 if (!targets.isEmpty()) {
                     targets.forEach(t -> draft.addEdge(methodKey(function), methodKey(t), CodeEdgeKind.CALLS));
+                    continue;
+                }
+            }
+            if (targetType != null) {
+                // 같은 앱의 Java 클래스 메서드
+                List<String> javaTargets = foreign.find(targetType, method, args);
+                if (!javaTargets.isEmpty()) {
+                    javaTargets.forEach(t -> draft.addEdge(methodKey(function), t, CodeEdgeKind.CALLS));
                     continue;
                 }
             }
@@ -224,7 +255,23 @@ public final class KotlinGraphSupport {
             }
             case "call_expression" -> {
                 String constructed = project.constructedType(file, expr);
-                return constructed != null ? constructed : callResultType(file, expr);
+                if (constructed != null) {
+                    return constructed;
+                }
+                // javaObject.getStore(): Java 메서드의 반환 타입
+                List<TSNode> parts = namedChildren(expr);
+                if (!parts.isEmpty() && parts.get(0).getType().equals("navigation_expression")) {
+                    List<TSNode> nav = namedChildren(parts.get(0));
+                    TSNode nameNode = nav.size() < 2 ? null : firstChild(nav.get(nav.size() - 1), "simple_identifier");
+                    String owner = nameNode == null ? null : typeOf(nav.get(0), context, locals);
+                    if (owner != null) {
+                        Optional<String> returned = foreign.returnType(owner, file.text(nameNode), argumentCount(expr));
+                        if (returned.isPresent()) {
+                            return returned.get();
+                        }
+                    }
+                }
+                return callResultType(file, expr);
             }
             case "navigation_expression" -> {
                 List<TSNode> nav = namedChildren(expr);
@@ -239,6 +286,13 @@ public final class KotlinGraphSupport {
                     String t = project.type(owner).map(o -> project.propertyType(o, prop)).orElse(null);
                     if (t != null) {
                         return t;
+                    }
+                }
+                // Java 클래스의 getter (user.name → getName())
+                if (owner != null) {
+                    Optional<String> getter = foreign.returnType(owner, "get" + Character.toUpperCase(prop.charAt(0)) + prop.substring(1), 0);
+                    if (getter.isPresent()) {
+                        return getter.get();
                     }
                 }
                 // intent.data → getData

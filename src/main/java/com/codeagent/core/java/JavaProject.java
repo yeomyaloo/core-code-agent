@@ -51,6 +51,8 @@ public class JavaProject {
     private final Path root;
     private final Map<String, TypeInfo> types = new LinkedHashMap<>();
     private final List<String> parseErrors = new ArrayList<>();
+    /** import 없이 이름으로 풀 수 있는 타입: 프로젝트 Java 타입 + addExternalTypes 로 더한 다른 언어(Kotlin) 타입 */
+    private final Set<String> knownTypes = new HashSet<>();
 
     private JavaProject(Path root) {
         this.root = root;
@@ -98,6 +100,20 @@ public class JavaProject {
         Set<String> result = new LinkedHashSet<>(type.superTypes());
         ancestors(type).forEach(a -> result.addAll(a.superTypes()));
         return result;
+    }
+
+    /**
+     * 같은 앱의 다른 언어(Kotlin) 타입 이름을 더한다. 같은 패키지·와일드카드 import 로 쓴 이름도 FQN 으로 풀리게 된다.
+     * 이미 색인한 상위 타입에는 반영되지 않는다.
+     */
+    public void addExternalTypes(Collection<String> fqns) {
+        knownTypes.addAll(fqns);
+    }
+
+    /** 메서드의 반환 타입 FQN (생성자·void·모르면 null) */
+    public String returnType(MethodInfo method) {
+        return method.decl() instanceof com.github.javaparser.ast.body.MethodDeclaration m
+                ? resolveType(m.getType(), method.owner().resolver()) : null;
     }
 
     public List<String> parseErrors() {
@@ -187,15 +203,15 @@ public class JavaProject {
         }
 
         // 1단계: 프로젝트 타입 이름 수집
-        Set<String> projectTypes = units.keySet().stream()
+        units.keySet().stream()
                 .flatMap(cu -> cu.findAll(TypeDeclaration.class).stream())
                 .map(td -> ((TypeDeclaration<?>) td).getFullyQualifiedName().orElse(null))
                 .filter(fqn -> fqn != null)
-                .collect(Collectors.toSet());
+                .forEach(knownTypes::add);
 
         // 2단계: 타입·상위 타입·메서드 색인
         units.forEach((cu, relativePath) -> {
-            TypeResolver resolver = new TypeResolver(cu, projectTypes);
+            TypeResolver resolver = new TypeResolver(cu, knownTypes);
             for (TypeDeclaration<?> td : cu.findAll(TypeDeclaration.class)) {
                 td.getFullyQualifiedName().ifPresent(fqn -> {
                     TypeInfo type = new TypeInfo(fqn, td, relativePath, resolver, superTypesOf(td, resolver), new ArrayList<>());
