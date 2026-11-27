@@ -4,7 +4,7 @@ plugins {
 }
 
 group = 'com.codeagent'
-version = '0.17.0'
+version = '0.18.0'
 
 java {
 	toolchain {
@@ -30,6 +30,9 @@ dependencies {
 	// Swift·Objective-C 파싱 (모바일 제품용, 기본 파서에는 없음. MIT)
 	implementation 'io.github.bonede:tree-sitter-swift:0.5.0'
 	implementation 'io.github.bonede:tree-sitter-objc:main-a'
+	// Node.js 백엔드 (JavaScript·TypeScript)
+	implementation 'io.github.bonede:tree-sitter-javascript:0.25.0'
+	implementation 'io.github.bonede:tree-sitter-typescript:0.23.2'
 
 	testImplementation platform('org.junit:junit-bom:5.13.4')
 	testImplementation 'org.junit.jupiter:junit-jupiter'

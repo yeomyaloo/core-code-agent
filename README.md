@@ -71,7 +71,7 @@ repositories {
 }
 
 dependencies {
-    implementation 'com.codeagent:core-code-agent:0.16.0'   // bump the number to upgrade
+    implementation 'com.codeagent:core-code-agent:0.18.0'   // bump the number to upgrade
 }
 ```
 
@@ -103,10 +103,10 @@ Only the shared engine was pulled out, because a Spring Boot application cannot 
 ```
 cotcha-trail                                         consumers
 bump version in build.gradle
-git tag v0.16.0 && git push origin v0.16.0
+git tag v0.18.0 && git push origin v0.18.0
    │ GitHub Actions: tests on 4 OSes, then ./gradlew publish
    ▼
-GitHub Packages  com.codeagent:core-code-agent:0.16.0  ◀── implementation '…:0.16.0'
+GitHub Packages  com.codeagent:core-code-agent:0.18.0  ◀── implementation '…:0.18.0'
                                                           Gradle downloads it at build time
 ```
 
@@ -165,6 +165,7 @@ Node props shared with both servers: sinks have `category`, `cwe`, `api`, `metho
 | Language | Entry points | Sinks | Call edges |
 |---|---|---|---|
 | Java / Spring | Spring MVC mappings | 54 rules (SQL, command, path, SSRF, XXE, deserialization, XSS, crypto, IDOR candidates…) | type-resolved (imports, declarations, symbol solver) |
+| Node.js (JavaScript / TypeScript) | Express (`Router`, `app.use('/x', …)` mounts, `route()` chains), Koa (`@koa/router` with `prefix`), Fastify (`register(…, {prefix})`, `route({…})`), Hono, Restify, NestJS (`@Controller` + `@Get`/`@Post`…, `setGlobalPrefix`), Next.js API routes (`pages/api/**`, `app/**/route.ts`). Middleware and `@UseGuards` are kept as `guards` | COMMAND (child_process, execa, shelljs), CODE_INJECTION (eval, `Function`, vm, template engines), PATH (fs, `res.sendFile`/`download`), SSRF (fetch, axios, got, http), SQL (string-built `query`/`execute`/`raw`/`$queryRawUnsafe`), NOSQL_INJECTION (request object passed to `find`/`findOne`/…), PROTOTYPE_POLLUTION (lodash `merge` family, deepmerge), DESERIALIZATION (node-serialize), OPEN_REDIRECT, XSS (`res.send` of request data), weak crypto/random | name-resolved: `require`/`import` (relative, `@/`, index files), `module.exports`/`exports.x`, classes and `this.x`, NestJS constructor injection, TS parameter types, factory functions |
 | JS / TS / Vue / HTML | – | 27 line-based patterns (XSS, eval, open redirect, token storage, secrets…) | – |
 | Kotlin | – (products plug in their own: cotcha-pinch wires exported Android components to Kotlin handlers) | the same Java rules (`SinkRules`), matched on Kotlin calls and constructor calls | name-resolved: imports and aliases, declared parameter/property/local types, `Foo(...)` constructor calls, `this`/`super`, companion functions, top-level functions (`FileNameKt`), optional known framework return types |
 | Python / FastAPI | FastAPI routes (`@app.get`, `@router.post`, `api_route`, `websocket`), `APIRouter(prefix=)` + `include_router(prefix=)`, `Depends`/`Security` | ~200 APIs: COMMAND (subprocess, os.system/popen, asyncio subprocess, python-nmap), SSRF (requests, httpx, aiohttp, urllib), PATH (open, pathlib, FileResponse, shutil), SQL (string-built `execute`, `sqlalchemy.text`), DESERIALIZATION (pickle, yaml.load, marshal…), code injection, XXE, redirect, XSS, weak crypto/random | name-resolved through the import table (absolute and relative imports, `self.`, `var = Call()`, `with … as`) |
@@ -183,6 +184,12 @@ Android notes (`android` package, only when `AndroidManifest.xml` is present):
 - `AndroidManifest` parses the manifest (XXE-safe), ignoring generated ones under `build/`: `usesCleartextTraffic` and `exported` components with their intent-filters and deep links. Launcher-only `MAIN`/`LAUNCHER` activities are not treated as external entry points.
 - `AndroidDetector` adds, on the Kotlin graph: socket entry points (functions that call `ServerSocket.accept()`, props `kind=socket`, `transport=tcp|tls`), manifest `exported` component entry points (`kind=android-component`), a CLEARTEXT sink for `usesCleartextTraffic` (props `mobile=true`), a MISSING_AUTH sink when a WebSocket handshake (`101 Switching Protocols` / `Sec-WebSocket-Accept`) is written in a class with no token/PIN/authorization check, and a TOKEN_STORAGE sink for `SharedPreferences` `putString` of a token-like key. `AndroidSinkRules` adds the TLS-less `ServerSocket` (CLEARTEXT) and `WebView.addJavascriptInterface` (WEBVIEW_JS) rules, merged with `SinkRules`.
 - The RFC6455 WebSocket handshake uses SHA-1 by design; `MessageDigest.getInstance("SHA-1")` next to a handshake signal is not a WEAK_CRYPTO sink. Other weak hashes are still flagged, and the algorithm is kept on the sink as `algorithm`.
+
+Node.js notes:
+- Detected without configuration: a `package.json` (outside `node_modules`, `dist`…) that depends on express, koa, fastify, @nestjs/core, hapi, restify, hono or next. Parsed with tree-sitter (`tree-sitter-javascript`, `tree-sitter-typescript`, MIT). Nodes carry `language=node`.
+- Browser code folders (`public`, `static`, `client`, `frontend`, `web`), tests, `.d.ts` and minified files are skipped. The line-based frontend scanner still runs on backend files for secrets; its findings there get `frontend=false` and a CALLS edge from the enclosing Node function, so they have entry paths too.
+- A call is a sink only when the argument can carry input: built strings (template with `${}`, `+`) for SQL/eval, request values (`req.body`, `req.query`, `ctx.request.body`, NestJS `@Body()`/`@Query()` parameters, and locals assigned from them) for NoSQL, prototype pollution and `res.send`, and any non-literal argument for command, path and SSRF. Methods like `query`, `findOne` and `sendFile` match by name when the receiver is not known (a DB pool or an Express response).
+- Path-scoped middleware (`app.use('/x', fn)` without a router) and permission checks inside handlers are not kept as guards.
 
 Python notes:
 - Parsed with [tree-sitter](https://tree-sitter.github.io/) through the [tree-sitter-ng](https://github.com/bonede/tree-sitter-ng) JNI binding (MIT). Files with syntax errors are still analyzed; the broken part is skipped and reported in `parseErrors`.
@@ -211,7 +218,7 @@ Python notes:
 | 2-14 | Environment values also from Kubernetes manifests (container `env`, including the one-line form; `configMapKeyRef`/`secretKeyRef` into ConfigMap `data` / Secret `stringData`; `envFrom` keys) and Kustomize `configMapGenerator` (`literals`, `envs` files); search depth 6 | ✅ Done (v0.16.0) |
 | 2-1 | `JavaGraphSupport`: Java building blocks as public API, so other products (cotcha-pinch for Android) reuse parsing and call linking instead of copying them. No change in be/mcp output | ✅ Done (v0.3.0) |
 | 2-15 | Android attack surface in the default engine (new `android` package), gated on `AndroidManifest.xml`: `ServerSocket.accept()` loops as socket entry points, manifest `exported` components / intent-filters / deep links as entry points, and mobile sinks — `usesCleartextTraffic` and TLS-less `ServerSocket` (CLEARTEXT), token/PIN-less socket (WebSocket) handshakes (MISSING_AUTH), `WebView.addJavascriptInterface` (WEBVIEW_JS), `SharedPreferences` token storage (TOKEN_STORAGE). RFC6455 WebSocket-handshake SHA-1 is no longer a WEAK_CRYPTO false positive | ✅ Done (v0.17.0) |
-| 3 | TypeScript backend parser on the same plugin interface | ⏳ Planned |
+| 2-16 | Node.js backends in the default engine (new `node` package, JavaScript and TypeScript): Express, Koa, Fastify, Hono, Restify, NestJS and Next.js entry points with mount prefixes and `guards`; calls through `require`/`import`, classes and NestJS injection; Node sink rules including new NOSQL_INJECTION and PROTOTYPE_POLLUTION categories | ✅ Done (v0.18.0) |
 
 ## Development
 
@@ -232,9 +239,10 @@ src/main/java/com/codeagent/core/
 ├── LanguageParser.java       per-language parser interface
 ├── SourceFiles.java          source file discovery (skips build/venv folders, symlinks)
 ├── model/                    CodeNodeKind, CodeEdgeKind, CodeGraphDraft (output model)
-├── rules/                    SinkRule, SinkRules (Java), PythonSinkRules
+├── rules/                    SinkRule, SinkRules (Java), PythonSinkRules, NodeSinkRules
 ├── java/                     JavaLanguage, JavaProject, TypeResolver, EntryPointDetector, CodeGraphBuilder
 ├── python/                   PythonLanguage (tree-sitter), PythonModule (imports, definitions), PythonGraphBuilder (FastAPI, calls, sinks)
+├── node/                     NodeLanguage (detection, graph), NodeProject (modules, imports, values), NodeRoutes (Express/Koa/Fastify/NestJS/Next.js)
 └── frontend/                 FrontendGraph, FrontendScanner (JS/TS/Vue/HTML)
 src/test/                     unit tests and sample apps (vulnerable-app, idor-app, owasp-app, fastapi-app)
 docs/design.md                design notes (Korean)
@@ -307,10 +315,10 @@ cotcha-trail  [엔진, 라이브러리]  <── 의존 ── cotcha-net     [S
 ```
 cotcha-trail                                         쓰는 쪽
 build.gradle 의 version 올리기
-git tag v0.16.0 && git push origin v0.16.0
+git tag v0.18.0 && git push origin v0.18.0
    │ GitHub Actions: 4개 OS 테스트 → ./gradlew publish
    ▼
-GitHub Packages  com.codeagent:core-code-agent:0.16.0  ◀── implementation '…:0.16.0'
+GitHub Packages  com.codeagent:core-code-agent:0.18.0  ◀── implementation '…:0.18.0'
                                                           빌드할 때 Gradle 이 받아 옴
 ```
 
@@ -369,6 +377,7 @@ Gradle 이 좌표(`group` + `rootProject.name`)를 맞춰 보고 이 레포를 �
 | 언어 | 진입점 | 위험 지점 | 호출 관계 |
 |---|---|---|---|
 | Java / Spring | Spring MVC 매핑 | 규칙 54개 (SQL, 명령, 경로, SSRF, XXE, 역직렬화, XSS, 암호, IDOR 후보…) | 타입 해석 (import, 선언, symbol solver) |
+| Node.js (JavaScript / TypeScript) | Express(`Router`, `app.use('/x', …)` 마운트, `route()` 체인), Koa(`@koa/router` 와 `prefix`), Fastify(`register(…, {prefix})`, `route({…})`), Hono, Restify, NestJS(`@Controller` + `@Get`·`@Post`…, `setGlobalPrefix`), Next.js API 라우트(`pages/api/**`, `app/**/route.ts`). 미들웨어와 `@UseGuards` 는 `guards` 로 남긴다 | COMMAND(child_process, execa, shelljs), CODE_INJECTION(eval, `Function`, vm, 템플릿 엔진), PATH(fs, `res.sendFile`·`download`), SSRF(fetch, axios, got, http), SQL(문자열을 조립해 넘기는 `query`·`execute`·`raw`·`$queryRawUnsafe`), NOSQL_INJECTION(요청 객체를 그대로 넘긴 `find`·`findOne`…), PROTOTYPE_POLLUTION(lodash `merge` 류, deepmerge), DESERIALIZATION(node-serialize), OPEN_REDIRECT, XSS(요청 값을 `res.send`), 약한 암호·난수 | 이름 해석: `require`·`import`(상대 경로, `@/`, index 파일), `module.exports`·`exports.x`, 클래스와 `this.x`, NestJS 생성자 주입, TS 파라미터 타입, 팩토리 함수 |
 | JS / TS / Vue / HTML | – | 줄 단위 패턴 27개 (XSS, eval, 오픈 리다이렉트, 토큰 저장, 비밀값…) | – |
 | Kotlin | – (제품이 직접 붙인다: cotcha-pinch 는 외부에 열린 안드로이드 컴포넌트를 Kotlin 핸들러로 잇는다) | Java 규칙(`SinkRules`)을 Kotlin 호출·생성자 호출에 그대로 적용 | 이름 해석: import·별칭, 파라미터·프로퍼티·지역 변수에 적힌 타입, `Foo(...)` 생성자 호출, `this`/`super`, companion 함수, 파일 최상위 함수(`파일이름Kt`), 넘겨받은 프레임워크 반환 타입 |
 | Python / FastAPI | FastAPI 라우트(`@app.get`, `@router.post`, `api_route`, `websocket`), `APIRouter(prefix=)` + `include_router(prefix=)`, `Depends`/`Security` | 약 200개 API: COMMAND(subprocess, os.system/popen, asyncio subprocess, python-nmap), SSRF(requests, httpx, aiohttp, urllib), PATH(open, pathlib, FileResponse, shutil), SQL(문자열을 조립해 넘기는 `execute`, `sqlalchemy.text`), DESERIALIZATION(pickle, yaml.load, marshal…), 코드 실행, XXE, 리다이렉트, XSS, 약한 암호·난수 | import 표로 이름 해석 (절대·상대 import, `self.`, `변수 = 호출()`, `with … as`) |
@@ -387,6 +396,12 @@ Kotlin 참고:
 - `AndroidManifest` 가 매니페스트를 파싱한다(XXE 안전, `build/` 아래 생성본은 건너뜀): `usesCleartextTraffic`, `exported` 컴포넌트와 intent-filter·딥링크. `MAIN`/`LAUNCHER` 만 있는 런처 액티비티는 외부 진입점으로 보지 않는다.
 - `AndroidDetector` 가 Kotlin 그래프에 더한다: 소켓 진입점(`ServerSocket.accept()` 를 부르는 함수, props `kind=socket`, `transport=tcp|tls`), 매니페스트 `exported` 컴포넌트 진입점(`kind=android-component`), `usesCleartextTraffic` 에 대한 CLEARTEXT 위험 지점(props `mobile=true`), 토큰/PIN/인증 검사가 클래스에 없는 WebSocket 핸드셰이크(`101 Switching Protocols`/`Sec-WebSocket-Accept`)에 대한 MISSING_AUTH, `SharedPreferences` 에 토큰류 키를 `putString` 하는 TOKEN_STORAGE. `AndroidSinkRules` 는 TLS 없는 `ServerSocket`(CLEARTEXT)·`WebView.addJavascriptInterface`(WEBVIEW_JS) 규칙을 `SinkRules` 와 합쳐 쓴다.
 - RFC6455 WebSocket 핸드셰이크는 원래 SHA-1 을 쓴다. 핸드셰이크 신호 옆의 `MessageDigest.getInstance("SHA-1")` 은 WEAK_CRYPTO 로 보지 않는다. 다른 약한 해시는 그대로 잡고, 알고리즘은 위험 지점에 `algorithm` 으로 남긴다.
+
+Node.js 참고:
+- 설정 없이 판별한다: `node_modules`·`dist` 등 밖의 `package.json` 이 express, koa, fastify, @nestjs/core, hapi, restify, hono, next 중 하나에 의존하면 Node 백엔드로 본다. tree-sitter(`tree-sitter-javascript`, `tree-sitter-typescript`, MIT)로 파싱한다. 노드에 `language=node` 가 붙는다.
+- 브라우저 코드 폴더(`public`, `static`, `client`, `frontend`, `web`), 테스트, `.d.ts`, 압축 파일은 건너뛴다. 줄 단위 프론트엔드 검사는 백엔드 파일에서도 비밀값 등을 찾고, 거기서 찾은 것은 `frontend=false` 에 감싼 Node 함수에서 CALLS 로 이어서 진입점 경로가 생긴다.
+- 인자가 입력을 실을 수 있을 때만 위험 지점이다: SQL·eval 은 조립한 문자열(`${}` 템플릿, `+`), NoSQL·프로토타입 오염·`res.send` 는 요청 값(`req.body`, `req.query`, `ctx.request.body`, NestJS `@Body()`·`@Query()` 파라미터와 그것을 받은 지역 변수), 명령·경로·SSRF 는 리터럴이 아닌 인자. `query`·`findOne`·`sendFile` 같은 메서드는 받는 쪽(DB 풀, Express 응답)을 모르면 이름으로 맞춘다.
+- 경로만 준 미들웨어(라우터 없는 `app.use('/x', fn)`)와 처리기 안에서 하는 권한 검사는 guards 로 남기지 않는다.
 
 Python 참고:
 - [tree-sitter](https://tree-sitter.github.io/) 를 [tree-sitter-ng](https://github.com/bonede/tree-sitter-ng) JNI 바인딩(MIT)으로 쓴다. 문법 오류가 있는 파일도 오류 부분만 건너뛰고 분석하고 `parseErrors` 에 남긴다.
@@ -415,7 +430,7 @@ Python 참고:
 | 2-14 | 환경 변수 값을 Kubernetes 매니페스트(컨테이너 `env`, 한 줄 형식 포함, `configMapKeyRef`·`secretKeyRef` 로 가리킨 ConfigMap `data`·Secret `stringData`, `envFrom` 키)와 Kustomize `configMapGenerator`(`literals`, `envs` 파일)에서도 찾는다. 찾는 깊이 6 | ✅ 완료 (v0.16.0) |
 | 2-1 | `JavaGraphSupport`: 규칙이 붙지 않은 Java 부품을 공개 API 로. 다른 제품(안드로이드용 cotcha-pinch)이 파싱·호출 연결을 복사하지 않고 쓴다. be·mcp 결과는 그대로 | ✅ 완료 (v0.3.0) |
 | 2-15 | 기본 엔진에서 안드로이드 공격면 탐지(새 `android` 패키지), `AndroidManifest.xml` 이 있을 때만: `ServerSocket.accept()` 수락 루프를 소켓 진입점으로, 매니페스트 `exported` 컴포넌트·intent-filter·딥링크를 진입점으로, 그리고 모바일 위험 지점 — `usesCleartextTraffic`·TLS 없는 `ServerSocket`(CLEARTEXT), 토큰/PIN 검사 없는 소켓(WebSocket) 핸드셰이크(MISSING_AUTH), `WebView.addJavascriptInterface`(WEBVIEW_JS), `SharedPreferences` 토큰 저장(TOKEN_STORAGE). RFC6455 WebSocket 핸드셰이크용 SHA-1 은 더 이상 WEAK_CRYPTO 오탐이 아니다 | ✅ 완료 (v0.17.0) |
-| 3 | 같은 플러그인 구조로 TypeScript 백엔드 파서 | ⏳ 예정 |
+| 2-16 | 기본 엔진에서 Node.js 백엔드 분석(새 `node` 패키지, JavaScript·TypeScript): Express, Koa, Fastify, Hono, Restify, NestJS, Next.js 진입점과 마운트 접두사·`guards`, `require`·`import`·클래스·NestJS 주입을 따라가는 호출, 새 분류 NOSQL_INJECTION·PROTOTYPE_POLLUTION 을 포함한 Node 위험 지점 규칙 | ✅ 완료 (v0.18.0) |
 
 ## 개발
 
@@ -431,9 +446,10 @@ src/main/java/com/codeagent/core/
 ├── LanguageParser.java       언어별 파서 인터페이스
 ├── SourceFiles.java          소스 파일 찾기 (빌드·가상환경 폴더, 심볼릭 링크 제외)
 ├── model/                    CodeNodeKind, CodeEdgeKind, CodeGraphDraft (출력 모델)
-├── rules/                    SinkRule, SinkRules (Java), PythonSinkRules
+├── rules/                    SinkRule, SinkRules (Java), PythonSinkRules, NodeSinkRules
 ├── java/                     JavaLanguage, JavaProject, TypeResolver, EntryPointDetector, CodeGraphBuilder
 ├── python/                   PythonLanguage (tree-sitter), PythonModule (import·정의 색인), PythonGraphBuilder (FastAPI, 호출, 위험 지점)
+├── node/                     NodeLanguage (판별, 그래프), NodeProject (모듈·import·값), NodeRoutes (Express/Koa/Fastify/NestJS/Next.js)
 └── frontend/                 FrontendGraph, FrontendScanner (JS/TS/Vue/HTML)
 src/test/                     단위 테스트와 예제 앱 (vulnerable-app, idor-app, owasp-app, fastapi-app)
 docs/design.md                설계 문서

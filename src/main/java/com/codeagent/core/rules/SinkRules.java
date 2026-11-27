@@ -115,7 +115,7 @@ public final class SinkRules {
      */
     private static final List<String> CATEGORY_ORDER = List.of(
             "COMMAND", "CODE_INJECTION", "WEBVIEW_JS", "EXPRESSION_INJECTION", "DESERIALIZATION", "JNDI", "SQL",
-            "XXE", "IDOR", "MISSING_AUTH", "PATH", "SSRF", "XSS", "OPEN_REDIRECT", "CLEARTEXT",
+            "NOSQL_INJECTION", "PROTOTYPE_POLLUTION", "XXE", "IDOR", "MISSING_AUTH", "PATH", "SSRF", "XSS", "OPEN_REDIRECT", "CLEARTEXT",
             "HARDCODED_SECRET", "POSTMESSAGE", "TOKEN_STORAGE", "WEAK_CRYPTO", "WEAK_RANDOM");
 
     /** 분류의 조사 우선순위. 모르는 분류는 맨 뒤 */

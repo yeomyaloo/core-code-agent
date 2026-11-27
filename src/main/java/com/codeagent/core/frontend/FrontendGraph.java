@@ -19,6 +19,19 @@ import java.util.Set;
 public final class FrontendGraph implements LanguageParser {
 
     private static final Set<String> SKIP_DIRS = Set.of(".git", "node_modules", "bower_components", "dist", "build", "out");
+    /** Node 백엔드 파서가 호출로 직접 보는 규칙 (백엔드 파일에서는 줄 검사를 하지 않는다) */
+    private static final Set<String> NODE_HANDLED_APIS = Set.of("eval", "new Function", "setTimeout/setInterval (문자열)");
+
+    /** 같은 저장소의 Node 백엔드 파서 (없으면 모든 JS·TS 파일을 프론트엔드로 본다) */
+    private final com.codeagent.core.node.NodeLanguage node;
+
+    public FrontendGraph() {
+        this(null);
+    }
+
+    public FrontendGraph(com.codeagent.core.node.NodeLanguage node) {
+        this.node = node;
+    }
 
     @Override
     public String language() {
@@ -32,11 +45,24 @@ public final class FrontendGraph implements LanguageParser {
 
     @Override
     public void contribute(Path root, CodeGraphDraft draft, List<String> parseErrors) {
-        contribute(root, draft);
+        contribute(root, draft, node);
     }
 
     public static void contribute(Path root, CodeGraphDraft draft) {
+        contribute(root, draft, (com.codeagent.core.node.NodeLanguage) null);
+    }
+
+    /**
+     * Node 백엔드 파일이면 eval·new Function 은 Node 파서가 호출로 보므로 건너뛰고, 나머지(비밀값 등)는
+     * 감싼 Node 함수에서 잇는다 (진입점 경로가 생긴다).
+     */
+    private static void contribute(Path root, CodeGraphDraft draft, com.codeagent.core.node.NodeLanguage node) {
+        Set<String> backend = node == null ? Set.of() : node.backendFiles(root);
         for (FrontendScanner.FrontendSink sink : FrontendScanner.scan(root)) {
+            boolean backendFile = backend.contains(sink.filePath());
+            if (backendFile && NODE_HANDLED_APIS.contains(sink.api())) {
+                continue;
+            }
             String fileKey = draft.addNode(new NodeDraft(CodeNodeKind.FILE, sink.filePath(), sink.filePath(), null, null,
                     Map.of("language", "javascript")));
             String fileName = sink.filePath().substring(sink.filePath().lastIndexOf('/') + 1);
@@ -47,11 +73,17 @@ public final class FrontendGraph implements LanguageParser {
             // 함수 단위로 나누지 않으므로 파일 이름(확장자 제외)을 위치 이름으로 쓴다
             props.put("method", fileName.contains(".") ? fileName.substring(0, fileName.lastIndexOf('.')) : fileName);
             props.put("snippet", sink.snippet());
-            props.put("frontend", true);
+            java.util.Optional<String> enclosing = backendFile ? node.enclosingMethodKey(root, sink.filePath(), sink.line())
+                    : java.util.Optional.empty();
+            props.put("frontend", !backendFile);
+            if (backendFile) {
+                props.put("language", "node");
+            }
             String sinkKey = draft.addNode(new NodeDraft(CodeNodeKind.SINK,
                     sink.filePath() + "@L" + sink.line() + ":" + sink.column() + " " + sink.api(),
                     sink.filePath(), sink.line(), sink.line(), props));
             draft.addEdge(fileKey, sinkKey, CodeEdgeKind.CONTAINS);
+            enclosing.ifPresent(methodKey -> draft.addEdge(methodKey, sinkKey, CodeEdgeKind.CALLS));
         }
     }
 }
