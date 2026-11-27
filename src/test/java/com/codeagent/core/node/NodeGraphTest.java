@@ -51,6 +51,15 @@ class NodeGraphTest {
                 app.use('/api/products', productRoutes);
                 app.use('/api/admin', requireAuth, adminRoutes);
                 app.get('/health', (req, res) => res.json({ ok: true }));
+
+                const helmet = require('helmet');
+                const { orderHistory } = require('./routes/history');
+                function asyncHandler(fn) { return fn; }
+                app.use(helmet.noSniff());
+                app.use('/rest/history', requireAuth);
+                app.use(['/rest/a', '/rest/b'], requireAuth);
+                app.get('/rest/history/:id', asyncHandler(orderHistory()));
+                app.get('/rest/open', asyncHandler(orderHistory()));
                 module.exports = app;
                 """);
         write("src/routes/products.js", """
@@ -88,6 +97,11 @@ class NodeGraphTest {
                 }
 
                 module.exports = router;
+                """);
+        write("src/routes/history.js", """
+                exports.orderHistory = function orderHistory () {
+                  return (req, res) => res.sendFile(req.params.id);
+                };
                 """);
         // ---- NestJS ----
         write("src/users/users.controller.ts", """
@@ -189,6 +203,15 @@ class NodeGraphTest {
     }
 
     @Test
+    void 처리기를_만드는_함수와_경로_지정_미들웨어를_읽는다() {
+        // asyncHandler(orderHistory()) 의 처리기는 orderHistory, app.use('/rest/history', requireAuth) 는 그 아래에만
+        assertThat(entries()).contains("GET /rest/history/:id -> src/routes/history.js#orderHistory");
+        assertThat(entry("GET /rest/history/:id").props().get("guards")).isEqualTo(List.of("requireAuth"));
+        // helmet 같은 기반 미들웨어는 단서가 아니고, 경로가 다른 라우트에는 걸리지 않는다
+        assertThat(entry("GET /rest/open").props().get("guards")).isEqualTo(List.of());
+    }
+
+    @Test
     void NestJS_Nextjs_Koa_Fastify_진입점을_찾는다() {
         assertThat(entries()).contains(
                 "GET /users/:id -> src/users/users.controller.ts#UsersController.find",
@@ -205,6 +228,7 @@ class NodeGraphTest {
         assertThat(sinks()).containsExactlyInAnyOrder(
                 "src/routes/products.js:7 SQL",
                 "src/routes/products.js:17 PATH",
+                "src/routes/history.js:2 PATH",
                 "src/routes/admin.js:9 COMMAND",
                 "src/users/users.controller.ts:17 CODE_INJECTION",
                 "src/users/users.service.ts:7 PATH",

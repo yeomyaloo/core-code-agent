@@ -45,6 +45,10 @@ final class NodeRoutes {
     private static final Set<String> COMMON_MIDDLEWARE = Set.of("express.json", "express.urlencoded", "express.static", "cors",
             "helmet", "morgan", "compression", "cookieParser", "bodyParser.json", "bodyParser.urlencoded", "bodyParser",
             "express.raw", "express.text", "logger", "json", "urlencoded");
+    /** 보안 헤더·로깅·파서·업로드 같은 기반 미들웨어 (인증 단서가 아니다) */
+    private static final List<String> COMMON_PREFIXES = List.of("helmet", "featurePolicy", "express.", "bodyParser", "cookieParser",
+            "compression", "morgan", "cors", "i18n", "robots", "serveIndex", "metrics.", "uploadTo", "multer", "swaggerUi", "favicon",
+            "serveStatic", "responseTime", "methodOverride", "csurf", "<inline>");
     private static final int MAX_DEPTH = 10;
 
     private final class Router {
@@ -53,6 +57,8 @@ final class NodeRoutes {
         String ownPrefix = "";
         final List<String[]> mounts = new ArrayList<>(); // {부모 key, 경로}
         final List<String> middlewares = new ArrayList<>();
+        /** app.use('/rest/basket', auth): 이 라우터 기준 경로 아래에만 걸리는 미들웨어 {경로, 이름} */
+        final List<String[]> scoped = new ArrayList<>();
 
         Router(String key, String framework) {
             this.key = key;
@@ -83,9 +89,13 @@ final class NodeRoutes {
             Router router = routers.get(route.routerKey());
             List<String> guards = new ArrayList<>(route.guards());
             guards.addAll(middlewares(router, new HashSet<>()));
+            guards.removeIf(NodeRoutes::isCommon);
             for (String prefix : prefixes(router, new HashSet<>())) {
-                result.add(new Route(route.method(), EntryPointDetector.joinPath(prefix, route.path()), route.handler(), route.handlers(),
-                        List.copyOf(new LinkedHashSet<>(guards)), router.framework));
+                String full = EntryPointDetector.joinPath(prefix, route.path());
+                List<String> withScoped = new ArrayList<>(guards);
+                withScoped.addAll(scopedGuards(router, full, new HashSet<>()));
+                result.add(new Route(route.method(), full, route.handler(), route.handlers(),
+                        List.copyOf(new LinkedHashSet<>(withScoped)), router.framework));
             }
         }
         result.addAll(nestRoutes());
@@ -174,24 +184,42 @@ final class NodeRoutes {
     private void use(NodeModule module, NodeFunction context, Router router, List<TSNode> args) {
         NodeFile file = module.file;
         String path = args.isEmpty() ? null : file.stringValue(args.get(0));
+        List<String> paths = new ArrayList<>();
+        if (path != null) {
+            paths.add(path);
+        } else if (!args.isEmpty() && args.get(0).getType().equals("array")) {
+            // app.use(['/a', '/b'], fn)
+            for (TSNode item : NodeFile.namedChildren(args.get(0))) {
+                String value = file.stringValue(item);
+                if (value != null) {
+                    paths.add(value);
+                }
+            }
+        }
+        boolean pathScoped = !paths.isEmpty();
         List<Router> children = new ArrayList<>();
         List<String> names = new ArrayList<>();
-        for (TSNode arg : path == null ? args : args.subList(1, args.size())) {
+        for (TSNode arg : pathScoped ? args.subList(1, args.size()) : args) {
             Router child = routerOf(module, context, arg, 0);
             if (child != null && child != router) {
                 child.mounts.add(new String[]{router.key, path == null ? "" : path});
                 children.add(child);
             } else {
                 String name = guardName(file, arg);
-                if (!COMMON_MIDDLEWARE.contains(name.replaceAll("\\(.*", ""))) {
+                if (!isCommon(name)) {
                     names.add(name);
                 }
             }
         }
         if (children.isEmpty()) {
-            // app.use(auth): 이 라우터의 모든 라우트 앞 (경로를 준 app.use('/x', fn) 은 그 경로에만 걸려서 모른다)
-            if (path == null) {
+            if (!pathScoped) {
+                // app.use(auth): 이 라우터의 모든 라우트 앞
                 router.middlewares.addAll(names);
+            } else {
+                // app.use('/rest/basket', auth): 그 경로 아래 라우트에만
+                for (String scope : paths) {
+                    names.forEach(n -> router.scoped.add(new String[]{scope, n}));
+                }
             }
         } else {
             // app.use('/api/orders', requireAuth, orders): 같이 붙인 미들웨어는 그 라우터 앞
@@ -542,7 +570,7 @@ final class NodeRoutes {
             return f.fn();
         }
         if (arg.getType().equals("call_expression")) {
-            // asyncHandler(controller.get) / wrap(fn)
+            // asyncHandler(controller.get) · wrap(fn) · asyncHandler(resetPassword())
             for (TSNode inner : arguments(arg)) {
                 Target t = project.evaluate(module, context, inner, project.locals(context), 0);
                 if (t instanceof FnTarget f) {
@@ -551,9 +579,71 @@ final class NodeRoutes {
                 if (NodeProject.isFunction(inner)) {
                     return project.functionFor(file, inner, method + " " + path);
                 }
+                if (inner.getType().equals("call_expression")) {
+                    NodeFunction factory = handlerFunction(module, context, method, path, inner, last);
+                    if (factory != null) {
+                        return factory;
+                    }
+                }
+            }
+            // login() 처럼 처리기를 만들어 돌려주는 함수: 돌려주는 함수가 그 안에 있으므로 만드는 함수를 처리기로 본다
+            Target callee = project.evaluate(module, context, field(arg, "function"), project.locals(context), 0);
+            if (callee instanceof FnTarget f && returnsFunction(f.fn())) {
+                return f.fn();
             }
         }
         return null;
+    }
+
+    /** return (req, res) => {...} · return function (req, res) {...} 가 있는 함수 */
+    private static boolean returnsFunction(NodeFunction fn) {
+        for (TSNode ret : NodeFile.descendants(fn.node(), Set.of("return_statement"), Set.of())) {
+            TSNode value = NodeProject.firstNamedChild(ret);
+            if (value != null && NodeProject.isFunction(value)) {
+                return true;
+            }
+        }
+        return NodeProject.isFunction(field(fn.node(), "body"));
+    }
+
+    static boolean isCommon(String name) {
+        String base = name.replaceAll("\\(.*", "");
+        return COMMON_MIDDLEWARE.contains(base) || COMMON_PREFIXES.stream().anyMatch(base::startsWith);
+    }
+
+    /** 라우트 전체 경로에 걸리는 경로 지정 미들웨어 (이 라우터와 마운트한 바깥 라우터들) */
+    private List<String> scopedGuards(Router router, String fullPath, Set<String> visited) {
+        List<String> result = new ArrayList<>();
+        if (router == null || !visited.add(router.key)) {
+            return result;
+        }
+        for (String[] scoped : router.scoped) {
+            for (String prefix : prefixes(router, new HashSet<>())) {
+                if (pathCovers(EntryPointDetector.joinPath(prefix, scoped[0]), fullPath)) {
+                    result.add(scoped[1]);
+                    break;
+                }
+            }
+        }
+        for (String[] mount : router.mounts) {
+            result.addAll(scopedGuards(routers.get(mount[0]), fullPath, visited));
+        }
+        return result;
+    }
+
+    /** /rest/basket 은 /rest/basket/:id/checkout 를 덮는다 (:id·* 는 아무 조각) */
+    private static boolean pathCovers(String scope, String path) {
+        String[] a = scope.split("/");
+        String[] b = path.split("/");
+        if (a.length > b.length) {
+            return false;
+        }
+        for (int i = 0; i < a.length; i++) {
+            if (!a[i].equals(b[i]) && !a[i].startsWith(":") && !a[i].equals("*") && !b[i].startsWith(":") && !a[i].contains("(")) {
+                return false;
+            }
+        }
+        return true;
     }
 
     private static String guardName(NodeFile file, TSNode arg) {

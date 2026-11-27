@@ -113,7 +113,8 @@ public final class NodeSinkRules {
             method(m, "SQL", "CWE-89", Condition.FORMATTED);
         }
         for (String m : List.of("find", "findOne", "findOneAndUpdate", "findOneAndDelete", "findOneAndRemove", "updateOne",
-                "updateMany", "deleteOne", "deleteMany", "countDocuments", "where", "aggregate", "replaceOne", "remove")) {
+                "updateMany", "deleteOne", "deleteMany", "countDocuments", "where", "aggregate", "replaceOne", "remove", "update", "count",
+                "distinct", "findAndModify", "mapReduce")) {
             method(m, "NOSQL_INJECTION", "CWE-943", Condition.REQUEST_VALUE);
         }
     }
