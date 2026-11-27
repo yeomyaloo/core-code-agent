@@ -71,7 +71,7 @@ repositories {
 }
 
 dependencies {
-    implementation 'com.codeagent:core-code-agent:0.18.0'   // bump the number to upgrade
+    implementation 'com.codeagent:core-code-agent:0.19.0'   // bump the number to upgrade
 }
 ```
 
@@ -103,10 +103,10 @@ Only the shared engine was pulled out, because a Spring Boot application cannot 
 ```
 cotcha-trail                                         consumers
 bump version in build.gradle
-git tag v0.18.0 && git push origin v0.18.0
+git tag v0.19.0 && git push origin v0.19.0
    │ GitHub Actions: tests on 4 OSes, then ./gradlew publish
    ▼
-GitHub Packages  com.codeagent:core-code-agent:0.18.0  ◀── implementation '…:0.18.0'
+GitHub Packages  com.codeagent:core-code-agent:0.19.0  ◀── implementation '…:0.19.0'
                                                           Gradle downloads it at build time
 ```
 
@@ -166,6 +166,7 @@ Node props shared with both servers: sinks have `category`, `cwe`, `api`, `metho
 |---|---|---|---|
 | Java / Spring | Spring MVC mappings | 54 rules (SQL, command, path, SSRF, XXE, deserialization, XSS, crypto, IDOR candidates…) | type-resolved (imports, declarations, symbol solver) |
 | Node.js (JavaScript / TypeScript) | Express (`Router`, `app.use('/x', …)` mounts, `route()` chains), Koa (`@koa/router` with `prefix`), Fastify (`register(…, {prefix})`, `route({…})`), Hono, Restify, NestJS (`@Controller` + `@Get`/`@Post`…, `setGlobalPrefix`), Next.js API routes (`pages/api/**`, `app/**/route.ts`). Middleware and `@UseGuards` are kept as `guards` | COMMAND (child_process, execa, shelljs), CODE_INJECTION (eval, `Function`, vm, template engines), PATH (fs, `res.sendFile`/`download`), SSRF (fetch, axios, got, http), SQL (string-built `query`/`execute`/`raw`/`$queryRawUnsafe`), NOSQL_INJECTION (request object passed to `find`/`findOne`/…), PROTOTYPE_POLLUTION (lodash `merge` family, deepmerge), DESERIALIZATION (node-serialize), OPEN_REDIRECT, XSS (`res.send` of request data), weak crypto/random | name-resolved: `require`/`import` (relative, `@/`, index files), `module.exports`/`exports.x`, classes and `this.x`, NestJS constructor injection, TS parameter types, factory functions |
+| Go | net/http `ServeMux` (Go 1.22 `"GET /items/{id}"` patterns, `StripPrefix` mounts), gin, echo, chi (`Route`, `Group`, `Mount`, `With`), gorilla/mux (`PathPrefix().Subrouter()`, `.Methods()`), fiber; groups and routers passed into functions (`func (h *Handler) Register(g *gin.RouterGroup)`) get the caller's prefix; middleware is kept as `guards` | COMMAND (`os/exec`), SQL (string-built `Query`/`Exec` on database/sql, sqlx, pgx, gorm `Raw`/`Where`…), PATH (`os.Open`/`ReadFile`…, `http.ServeFile`, `c.File`), SSRF (`http.Get`, `NewRequest`, `http.Client`), OPEN_REDIRECT, XSS (`template.HTML`, request values written to the response, HTML `c.Data`), template injection (`template.Parse` of a request value), weak crypto (md5, sha1, des, rc4, `InsecureSkipVerify`), `math/rand` | type-resolved from Go's declared types: packages from `go.mod`, receivers, parameters, struct fields (embedded too), `:=` from constructors, interface calls to the project types that implement them (matched by name and parameter types) |
 | JS / TS / Vue / HTML | – | 27 line-based patterns (XSS, eval, open redirect, token storage, secrets…) | – |
 | Kotlin | – (products plug in their own: cotcha-pinch wires exported Android components to Kotlin handlers) | the same Java rules (`SinkRules`), matched on Kotlin calls and constructor calls | name-resolved: imports and aliases, declared parameter/property/local types, `Foo(...)` constructor calls, `this`/`super`, companion functions, top-level functions (`FileNameKt`), optional known framework return types |
 | Python / FastAPI | FastAPI routes (`@app.get`, `@router.post`, `api_route`, `websocket`), `APIRouter(prefix=)` + `include_router(prefix=)`, `Depends`/`Security` | ~200 APIs: COMMAND (subprocess, os.system/popen, asyncio subprocess, python-nmap), SSRF (requests, httpx, aiohttp, urllib), PATH (open, pathlib, FileResponse, shutil), SQL (string-built `execute`, `sqlalchemy.text`), DESERIALIZATION (pickle, yaml.load, marshal…), code injection, XXE, redirect, XSS, weak crypto/random | name-resolved through the import table (absolute and relative imports, `self.`, `var = Call()`, `with … as`) |
@@ -190,6 +191,11 @@ Node.js notes:
 - Browser code folders (`public`, `static`, `client`, `frontend`, `web`), tests, `.d.ts` and minified files are skipped. The line-based frontend scanner still runs on backend files for secrets; its findings there get `frontend=false` and a CALLS edge from the enclosing Node function, so they have entry paths too.
 - A call is a sink only when the argument can carry input: built strings (template with `${}`, `+`) for SQL/eval, request values (`req.body`, `req.query`, `ctx.request.body`, NestJS `@Body()`/`@Query()` parameters, and locals assigned from them) for NoSQL, prototype pollution and `res.send`, and any non-literal argument for command, path and SSRF. Methods like `query`, `findOne` and `sendFile` match by name when the receiver is not known (a DB pool or an Express response).
 - Path-scoped middleware (`app.use('/x', fn)` without a router) and permission checks inside handlers are not kept as guards.
+
+Go notes:
+- Detected when the repository has `.go` files (not `vendor/`, `testdata/`, `_test.go`). Parsed with tree-sitter (`tree-sitter-go`, MIT). Nodes carry `language=go`; function keys are `dir#Func` and `dir#Type.Method`, and anonymous handlers are named after their route (`internal/handlers#GET /files/:name`).
+- Calls with only constants (`exec.Command("uptime")`, `os.ReadFile("/etc/app.conf")`, `db.Query("... $1", id)`) are not sinks. SQL is flagged when the query is built with `fmt.Sprintf`, `+` or `+=`. `c.Data` is XSS only with an HTML (or non-constant) content type; `fmt.Fprintf`/`io.WriteString` only when writing to the `http.ResponseWriter`.
+- Not followed: routers kept in struct fields and assigned elsewhere, function values stored in variables, generics. `app.Use("/x", fn)` path-scoped middleware is not kept as a guard.
 
 Python notes:
 - Parsed with [tree-sitter](https://tree-sitter.github.io/) through the [tree-sitter-ng](https://github.com/bonede/tree-sitter-ng) JNI binding (MIT). Files with syntax errors are still analyzed; the broken part is skipped and reported in `parseErrors`.
@@ -219,6 +225,7 @@ Python notes:
 | 2-1 | `JavaGraphSupport`: Java building blocks as public API, so other products (cotcha-pinch for Android) reuse parsing and call linking instead of copying them. No change in be/mcp output | ✅ Done (v0.3.0) |
 | 2-15 | Android attack surface in the default engine (new `android` package), gated on `AndroidManifest.xml`: `ServerSocket.accept()` loops as socket entry points, manifest `exported` components / intent-filters / deep links as entry points, and mobile sinks — `usesCleartextTraffic` and TLS-less `ServerSocket` (CLEARTEXT), token/PIN-less socket (WebSocket) handshakes (MISSING_AUTH), `WebView.addJavascriptInterface` (WEBVIEW_JS), `SharedPreferences` token storage (TOKEN_STORAGE). RFC6455 WebSocket-handshake SHA-1 is no longer a WEAK_CRYPTO false positive | ✅ Done (v0.17.0) |
 | 2-16 | Node.js backends in the default engine (new `node` package, JavaScript and TypeScript): Express, Koa, Fastify, Hono, Restify, NestJS and Next.js entry points with mount prefixes and `guards`; calls through `require`/`import`, classes and NestJS injection; Node sink rules including new NOSQL_INJECTION and PROTOTYPE_POLLUTION categories | ✅ Done (v0.18.0) |
+| 2-17 | Go backends in the default engine (new `golang` package): net/http, gin, echo, chi, gorilla/mux and fiber entry points with group/mount prefixes, routers passed into functions and `guards`; calls through Go's declared types and interfaces; Go sink rules including template injection and `InsecureSkipVerify` | ✅ Done (v0.19.0) |
 
 ## Development
 
@@ -239,9 +246,10 @@ src/main/java/com/codeagent/core/
 ├── LanguageParser.java       per-language parser interface
 ├── SourceFiles.java          source file discovery (skips build/venv folders, symlinks)
 ├── model/                    CodeNodeKind, CodeEdgeKind, CodeGraphDraft (output model)
-├── rules/                    SinkRule, SinkRules (Java), PythonSinkRules, NodeSinkRules
+├── rules/                    SinkRule, SinkRules (Java), PythonSinkRules, NodeSinkRules, GoSinkRules
 ├── java/                     JavaLanguage, JavaProject, TypeResolver, EntryPointDetector, CodeGraphBuilder
 ├── python/                   PythonLanguage (tree-sitter), PythonModule (imports, definitions), PythonGraphBuilder (FastAPI, calls, sinks)
+├── golang/                   GoLanguage (graph), GoProject (packages, types, type inference), GoRoutes (net/http, gin, echo, chi, gorilla, fiber)
 ├── node/                     NodeLanguage (detection, graph), NodeProject (modules, imports, values), NodeRoutes (Express/Koa/Fastify/NestJS/Next.js)
 └── frontend/                 FrontendGraph, FrontendScanner (JS/TS/Vue/HTML)
 src/test/                     unit tests and sample apps (vulnerable-app, idor-app, owasp-app, fastapi-app)
@@ -315,10 +323,10 @@ cotcha-trail  [엔진, 라이브러리]  <── 의존 ── cotcha-net     [S
 ```
 cotcha-trail                                         쓰는 쪽
 build.gradle 의 version 올리기
-git tag v0.18.0 && git push origin v0.18.0
+git tag v0.19.0 && git push origin v0.19.0
    │ GitHub Actions: 4개 OS 테스트 → ./gradlew publish
    ▼
-GitHub Packages  com.codeagent:core-code-agent:0.18.0  ◀── implementation '…:0.18.0'
+GitHub Packages  com.codeagent:core-code-agent:0.19.0  ◀── implementation '…:0.19.0'
                                                           빌드할 때 Gradle 이 받아 옴
 ```
 
@@ -378,6 +386,7 @@ Gradle 이 좌표(`group` + `rootProject.name`)를 맞춰 보고 이 레포를 �
 |---|---|---|---|
 | Java / Spring | Spring MVC 매핑 | 규칙 54개 (SQL, 명령, 경로, SSRF, XXE, 역직렬화, XSS, 암호, IDOR 후보…) | 타입 해석 (import, 선언, symbol solver) |
 | Node.js (JavaScript / TypeScript) | Express(`Router`, `app.use('/x', …)` 마운트, `route()` 체인), Koa(`@koa/router` 와 `prefix`), Fastify(`register(…, {prefix})`, `route({…})`), Hono, Restify, NestJS(`@Controller` + `@Get`·`@Post`…, `setGlobalPrefix`), Next.js API 라우트(`pages/api/**`, `app/**/route.ts`). 미들웨어와 `@UseGuards` 는 `guards` 로 남긴다 | COMMAND(child_process, execa, shelljs), CODE_INJECTION(eval, `Function`, vm, 템플릿 엔진), PATH(fs, `res.sendFile`·`download`), SSRF(fetch, axios, got, http), SQL(문자열을 조립해 넘기는 `query`·`execute`·`raw`·`$queryRawUnsafe`), NOSQL_INJECTION(요청 객체를 그대로 넘긴 `find`·`findOne`…), PROTOTYPE_POLLUTION(lodash `merge` 류, deepmerge), DESERIALIZATION(node-serialize), OPEN_REDIRECT, XSS(요청 값을 `res.send`), 약한 암호·난수 | 이름 해석: `require`·`import`(상대 경로, `@/`, index 파일), `module.exports`·`exports.x`, 클래스와 `this.x`, NestJS 생성자 주입, TS 파라미터 타입, 팩토리 함수 |
+| Go | net/http `ServeMux`(Go 1.22 `"GET /items/{id}"` 패턴, `StripPrefix` 마운트), gin, echo, chi(`Route`, `Group`, `Mount`, `With`), gorilla/mux(`PathPrefix().Subrouter()`, `.Methods()`), fiber. 그룹과 함수로 넘긴 라우터(`func (h *Handler) Register(g *gin.RouterGroup)`)는 부르는 곳의 경로를 받는다. 미들웨어는 `guards` 로 남긴다 | COMMAND(`os/exec`), SQL(database/sql·sqlx·pgx 의 `Query`·`Exec` 에 조립한 문자열, gorm `Raw`·`Where`…), PATH(`os.Open`·`ReadFile`…, `http.ServeFile`, `c.File`), SSRF(`http.Get`, `NewRequest`, `http.Client`), OPEN_REDIRECT, XSS(`template.HTML`, 요청 값을 응답에 그대로 쓰기, HTML `c.Data`), 템플릿 주입(요청 값을 `template.Parse`), 약한 암호(md5, sha1, des, rc4, `InsecureSkipVerify`), `math/rand` | Go 에 적힌 타입으로 해석: `go.mod` 로 패키지, 리시버, 파라미터, 구조체 필드(끼워 넣은 것 포함), 생성자에서 받은 `:=`, 인터페이스 호출은 그것을 채우는 프로젝트 타입으로(이름과 파라미터 타입으로 맞춤) |
 | JS / TS / Vue / HTML | – | 줄 단위 패턴 27개 (XSS, eval, 오픈 리다이렉트, 토큰 저장, 비밀값…) | – |
 | Kotlin | – (제품이 직접 붙인다: cotcha-pinch 는 외부에 열린 안드로이드 컴포넌트를 Kotlin 핸들러로 잇는다) | Java 규칙(`SinkRules`)을 Kotlin 호출·생성자 호출에 그대로 적용 | 이름 해석: import·별칭, 파라미터·프로퍼티·지역 변수에 적힌 타입, `Foo(...)` 생성자 호출, `this`/`super`, companion 함수, 파일 최상위 함수(`파일이름Kt`), 넘겨받은 프레임워크 반환 타입 |
 | Python / FastAPI | FastAPI 라우트(`@app.get`, `@router.post`, `api_route`, `websocket`), `APIRouter(prefix=)` + `include_router(prefix=)`, `Depends`/`Security` | 약 200개 API: COMMAND(subprocess, os.system/popen, asyncio subprocess, python-nmap), SSRF(requests, httpx, aiohttp, urllib), PATH(open, pathlib, FileResponse, shutil), SQL(문자열을 조립해 넘기는 `execute`, `sqlalchemy.text`), DESERIALIZATION(pickle, yaml.load, marshal…), 코드 실행, XXE, 리다이렉트, XSS, 약한 암호·난수 | import 표로 이름 해석 (절대·상대 import, `self.`, `변수 = 호출()`, `with … as`) |
@@ -402,6 +411,11 @@ Node.js 참고:
 - 브라우저 코드 폴더(`public`, `static`, `client`, `frontend`, `web`), 테스트, `.d.ts`, 압축 파일은 건너뛴다. 줄 단위 프론트엔드 검사는 백엔드 파일에서도 비밀값 등을 찾고, 거기서 찾은 것은 `frontend=false` 에 감싼 Node 함수에서 CALLS 로 이어서 진입점 경로가 생긴다.
 - 인자가 입력을 실을 수 있을 때만 위험 지점이다: SQL·eval 은 조립한 문자열(`${}` 템플릿, `+`), NoSQL·프로토타입 오염·`res.send` 는 요청 값(`req.body`, `req.query`, `ctx.request.body`, NestJS `@Body()`·`@Query()` 파라미터와 그것을 받은 지역 변수), 명령·경로·SSRF 는 리터럴이 아닌 인자. `query`·`findOne`·`sendFile` 같은 메서드는 받는 쪽(DB 풀, Express 응답)을 모르면 이름으로 맞춘다.
 - 경로만 준 미들웨어(라우터 없는 `app.use('/x', fn)`)와 처리기 안에서 하는 권한 검사는 guards 로 남기지 않는다.
+
+Go 참고:
+- 저장소에 `.go` 파일(`vendor/`, `testdata/`, `_test.go` 제외)이 있으면 판별한다. tree-sitter(`tree-sitter-go`, MIT)로 파싱한다. 노드에 `language=go` 가 붙고, 함수 키는 `폴더#함수`, `폴더#타입.메서드` 이며 이름 없는 처리기는 라우트로 이름 붙인다(`internal/handlers#GET /files/:name`).
+- 상수만 넘기는 호출(`exec.Command("uptime")`, `os.ReadFile("/etc/app.conf")`, `db.Query("... $1", id)`)은 위험 지점이 아니다. SQL 은 쿼리를 `fmt.Sprintf`·`+`·`+=` 로 조립했을 때 잡는다. `c.Data` 는 Content-Type 이 HTML(또는 상수가 아님)일 때만 XSS, `fmt.Fprintf`·`io.WriteString` 은 `http.ResponseWriter` 에 쓸 때만 본다.
+- 따라가지 않는 것: 구조체 필드에 넣어 다른 곳에서 채운 라우터, 변수에 담은 함수 값, 제네릭. 경로를 준 `app.Use("/x", fn)` 미들웨어는 guards 로 남기지 않는다.
 
 Python 참고:
 - [tree-sitter](https://tree-sitter.github.io/) 를 [tree-sitter-ng](https://github.com/bonede/tree-sitter-ng) JNI 바인딩(MIT)으로 쓴다. 문법 오류가 있는 파일도 오류 부분만 건너뛰고 분석하고 `parseErrors` 에 남긴다.
@@ -431,6 +445,7 @@ Python 참고:
 | 2-1 | `JavaGraphSupport`: 규칙이 붙지 않은 Java 부품을 공개 API 로. 다른 제품(안드로이드용 cotcha-pinch)이 파싱·호출 연결을 복사하지 않고 쓴다. be·mcp 결과는 그대로 | ✅ 완료 (v0.3.0) |
 | 2-15 | 기본 엔진에서 안드로이드 공격면 탐지(새 `android` 패키지), `AndroidManifest.xml` 이 있을 때만: `ServerSocket.accept()` 수락 루프를 소켓 진입점으로, 매니페스트 `exported` 컴포넌트·intent-filter·딥링크를 진입점으로, 그리고 모바일 위험 지점 — `usesCleartextTraffic`·TLS 없는 `ServerSocket`(CLEARTEXT), 토큰/PIN 검사 없는 소켓(WebSocket) 핸드셰이크(MISSING_AUTH), `WebView.addJavascriptInterface`(WEBVIEW_JS), `SharedPreferences` 토큰 저장(TOKEN_STORAGE). RFC6455 WebSocket 핸드셰이크용 SHA-1 은 더 이상 WEAK_CRYPTO 오탐이 아니다 | ✅ 완료 (v0.17.0) |
 | 2-16 | 기본 엔진에서 Node.js 백엔드 분석(새 `node` 패키지, JavaScript·TypeScript): Express, Koa, Fastify, Hono, Restify, NestJS, Next.js 진입점과 마운트 접두사·`guards`, `require`·`import`·클래스·NestJS 주입을 따라가는 호출, 새 분류 NOSQL_INJECTION·PROTOTYPE_POLLUTION 을 포함한 Node 위험 지점 규칙 | ✅ 완료 (v0.18.0) |
+| 2-17 | 기본 엔진에서 Go 백엔드 분석(새 `golang` 패키지): net/http, gin, echo, chi, gorilla/mux, fiber 진입점과 그룹·마운트 경로, 함수로 넘긴 라우터, `guards`. Go 에 적힌 타입과 인터페이스로 호출 잇기. 템플릿 주입·`InsecureSkipVerify` 를 포함한 Go 위험 지점 규칙 | ✅ 완료 (v0.19.0) |
 
 ## 개발
 
@@ -446,9 +461,10 @@ src/main/java/com/codeagent/core/
 ├── LanguageParser.java       언어별 파서 인터페이스
 ├── SourceFiles.java          소스 파일 찾기 (빌드·가상환경 폴더, 심볼릭 링크 제외)
 ├── model/                    CodeNodeKind, CodeEdgeKind, CodeGraphDraft (출력 모델)
-├── rules/                    SinkRule, SinkRules (Java), PythonSinkRules, NodeSinkRules
+├── rules/                    SinkRule, SinkRules (Java), PythonSinkRules, NodeSinkRules, GoSinkRules
 ├── java/                     JavaLanguage, JavaProject, TypeResolver, EntryPointDetector, CodeGraphBuilder
 ├── python/                   PythonLanguage (tree-sitter), PythonModule (import·정의 색인), PythonGraphBuilder (FastAPI, 호출, 위험 지점)
+├── golang/                   GoLanguage (그래프), GoProject (패키지·타입·타입 추론), GoRoutes (net/http, gin, echo, chi, gorilla, fiber)
 ├── node/                     NodeLanguage (판별, 그래프), NodeProject (모듈·import·값), NodeRoutes (Express/Koa/Fastify/NestJS/Next.js)
 └── frontend/                 FrontendGraph, FrontendScanner (JS/TS/Vue/HTML)
 src/test/                     단위 테스트와 예제 앱 (vulnerable-app, idor-app, owasp-app, fastapi-app)
