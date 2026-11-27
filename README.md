@@ -71,7 +71,7 @@ repositories {
 }
 
 dependencies {
-    implementation 'com.codeagent:core-code-agent:0.21.0'   // bump the number to upgrade
+    implementation 'com.codeagent:core-code-agent:0.22.0'   // bump the number to upgrade
 }
 ```
 
@@ -103,10 +103,10 @@ Only the shared engine was pulled out, because a Spring Boot application cannot 
 ```
 cotcha-trail                                         consumers
 bump version in build.gradle
-git tag v0.21.0 && git push origin v0.21.0
+git tag v0.22.0 && git push origin v0.22.0
    │ GitHub Actions: tests on 4 OSes, then ./gradlew publish
    ▼
-GitHub Packages  com.codeagent:core-code-agent:0.21.0  ◀── implementation '…:0.21.0'
+GitHub Packages  com.codeagent:core-code-agent:0.22.0  ◀── implementation '…:0.22.0'
                                                           Gradle downloads it at build time
 ```
 
@@ -169,6 +169,7 @@ Node props shared with both servers: sinks have `category`, `cwe`, `api`, `metho
 | Go | net/http `ServeMux` (Go 1.22 `"GET /items/{id}"` patterns, `StripPrefix` mounts), gin, echo, chi (`Route`, `Group`, `Mount`, `With`), gorilla/mux (`PathPrefix().Subrouter()`, `.Methods()`), fiber; groups and routers passed into functions (`func (h *Handler) Register(g *gin.RouterGroup)`) get the caller's prefix; middleware is kept as `guards` | COMMAND (`os/exec`), SQL (string-built `Query`/`Exec` on database/sql, sqlx, pgx, gorm `Raw`/`Where`…), PATH (`os.Open`/`ReadFile`…, `http.ServeFile`, `c.File`), SSRF (`http.Get`, `NewRequest`, `http.Client`), OPEN_REDIRECT, XSS (`template.HTML`, request values written to the response, HTML `c.Data`), template injection (`template.Parse` of a request value), weak crypto (md5, sha1, des, rc4, `InsecureSkipVerify`), `math/rand` | type-resolved from Go's declared types: packages from `go.mod`, receivers, parameters, struct fields (embedded too), `:=` from constructors, interface calls to the project types that implement them (matched by name and parameter types) |
 | PHP | Laravel (`Route::get`… with `prefix`/`middleware`/`controller`/`group` chains and `Route::group([...])`, `resource`/`apiResource`, `routes/api.php` under `/api`, controller-constructor `$this->middleware()`), Symfony (`#[Route]` attributes and `@Route` annotations with class prefixes, `IsGranted`/`Security` as guards), Slim (`$app->get`, `group(...)->add(M)`), CodeIgniter 4 (`$routes->get`, group `filter`), and plain `.php` scripts that read `$_GET`/`$_POST` | COMMAND (`exec`, `system`, backticks…), CODE_INJECTION (`eval`, `assert`, `include $x`), SQL (interpolated/concatenated strings to `mysqli_query`, PDO, `DB::select`, `whereRaw`…), PATH (`file_get_contents`, `fopen`, `unlink`…), SSRF (`curl`, `Http::get`, Guzzle), DESERIALIZATION (`unserialize`), XXE (`LIBXML_NOENT`), OPEN_REDIRECT (`redirect`, `header('Location: …')`), XSS (request values in `echo`/`response()`), weak crypto/random | type-resolved from PHP's declared types: `namespace`/`use`, typed parameters and properties, promoted constructor properties, `new`, return types, `$this`/`self`/`parent`, interface calls to implementing classes, Laravel facades (also `Http::timeout()->get()` chains) |
 | Ruby | Rails `config/routes.rb` (verbs with `to:`/`=>`, `root`, `resources`/`resource` with `only`/`except`, `member`/`collection`, nesting, `namespace`/`scope`/`controller`, Devise `authenticate`, `draw(:x)` files) with controller `before_action` auth filters as guards (`only`/`except`, `skip_before_action`, parents); Sinatra (`get '/x' do`, `namespace`, `before` filters) | COMMAND (`system`, backticks, `Kernel#open`, `Open3`, `IO.popen`), CODE_INJECTION (`eval`, `ERB.new`, `render inline:`), SQL (interpolated `where`/`find_by_sql`/`execute`, non-constant `order`/`pluck`/`group`), PATH (`File.*`, `send_file`, `render file:`), SSRF (`Net::HTTP`, `URI.open`, HTTParty, Faraday), DESERIALIZATION (`Marshal.load`, `YAML.unsafe_load`), OPEN_REDIRECT (`redirect_to` with request values), XSS (`html_safe`/`raw` on request values), weak crypto/random | `X.new` values, instance variables set with `X.new` (also `@x ||=`), memoized helper methods, class methods, lexical constant lookup |
+| C# | ASP.NET Core controllers (`[Route]`/`[HttpGet("{id}")]` attribute routing with `[controller]`/`[action]` tokens and `~/` overrides, conventional `/{controller}/{action}` for controllers without attributes), Minimal APIs (`MapGet`/`MapPost`/`MapMethods`, nested `MapGroup`); `[Authorize]`/`[AllowAnonymous]`, auth filter attributes and `RequireAuthorization()`/`AllowAnonymous()` as guards | COMMAND (`Process.Start`, `ProcessStartInfo`), CODE_INJECTION (`CSharpScript`), SQL (`FromSqlRaw`/`ExecuteSqlRaw`, Dapper, `SqlCommand`, `CommandText =` with built strings; `FromSqlInterpolated` is safe), PATH (`File.*`, `PhysicalFile`, `FileStream`), SSRF (`HttpClient`, `WebClient`), DESERIALIZATION (`BinaryFormatter`…, JSON.NET with `TypeNameHandling`), XXE (only with `XmlUrlResolver`/`DtdProcessing.Parse`), OPEN_REDIRECT (`Redirect` with request values; `LocalRedirect` is safe), XSS (`Content(x, "text/html")`, `HtmlString`), weak crypto/random | type-resolved from C#'s declared types: fields, properties, primary-constructor parameters, typed and `var` locals, return types, interface calls to implementing classes |
 | JS / TS / Vue / HTML | – | 27 line-based patterns (XSS, eval, open redirect, token storage, secrets…) | – |
 | Kotlin | – (products plug in their own: cotcha-pinch wires exported Android components to Kotlin handlers) | the same Java rules (`SinkRules`), matched on Kotlin calls and constructor calls | name-resolved: imports and aliases, declared parameter/property/local types, `Foo(...)` constructor calls, `this`/`super`, companion functions, top-level functions (`FileNameKt`), optional known framework return types |
 | Python / FastAPI | FastAPI routes (`@app.get`, `@router.post`, `api_route`, `websocket`), `APIRouter(prefix=)` + `include_router(prefix=)`, `Depends`/`Security` | ~200 APIs: COMMAND (subprocess, os.system/popen, asyncio subprocess, python-nmap), SSRF (requests, httpx, aiohttp, urllib), PATH (open, pathlib, FileResponse, shutil), SQL (string-built `execute`, `sqlalchemy.text`), DESERIALIZATION (pickle, yaml.load, marshal…), code injection, XXE, redirect, XSS, weak crypto/random | name-resolved through the import table (absolute and relative imports, `self.`, `var = Call()`, `with … as`) |
@@ -211,6 +212,12 @@ Ruby notes:
 - Request values: `params`, `request.body`/`raw_post`/`headers`…, `cookies[...]`, Sinatra block parameters. `redirect_to` is a sink only with request values (route helpers like `root_path` are not). `YAML.load` is left out because Psych 4 makes it safe. `system('cmd', arg)` with a constant program (no shell) is not a sink.
 - Not followed: `send`/`public_send`, metaprogramming (`define_method`), concerns mixed in with `include`, Grape/Hanami/Roda routes, ERB/Haml views.
 
+C# notes:
+- Detected when the repository has `.cs` files (not `bin/`, `obj/`, `Migrations/`, `*.Designer.cs`, tests). Parsed with tree-sitter (`tree-sitter-c-sharp`, MIT). Nodes carry `language=csharp`; methods are keyed `Namespace.Class#Method`, top-level statements `Program.cs#<main>`, Minimal API lambdas after their route.
+- Request values: action parameters bound from the request (`[FromQuery]`/`[FromBody]`/`[FromRoute]`/`[FromForm]`/`[FromHeader]`, or any parameter that is not a service such as `I…`, `…Service`, `…Repository`, `CancellationToken`), Minimal API lambda parameters, `Request.Query`/`Form`/`Headers`/`Cookies`/`Body`.
+- Safe-by-default APIs are not sinks: `FromSqlInterpolated`/`FromSql`, `LocalRedirect`, `XmlDocument` without `XmlUrlResolver`, JSON.NET without `TypeNameHandling`, `Process.Start("cmd")` with constants.
+- Not followed: Razor views (`@Html.Raw`), reflection, source generators, DI registrations (interface calls go to every implementing class), global auth through a fallback policy.
+
 Python notes:
 - Parsed with [tree-sitter](https://tree-sitter.github.io/) through the [tree-sitter-ng](https://github.com/bonede/tree-sitter-ng) JNI binding (MIT). Files with syntax errors are still analyzed; the broken part is skipped and reported in `parseErrors`.
 - Native libraries ship inside the jar for Linux x64/arm64, macOS x64/arm64 and Windows x64 (checked in CI with Java 17). **Windows on ARM is not supported**: Python files are skipped there with a message in `parseErrors`.
@@ -242,6 +249,7 @@ Python notes:
 | 2-17 | Go backends in the default engine (new `golang` package): net/http, gin, echo, chi, gorilla/mux and fiber entry points with group/mount prefixes, routers passed into functions and `guards`; calls through Go's declared types and interfaces; Go sink rules including template injection and `InsecureSkipVerify` | ✅ Done (v0.19.0) |
 | 2-18 | PHP backends in the default engine (new `php` package): Laravel, Symfony, Slim, CodeIgniter 4 and plain-script entry points with prefixes and `guards`; calls through PHP's declared types, interfaces and Laravel facades; PHP sink rules including XXE, `unserialize` and file inclusion | ✅ Done (v0.20.0) |
 | 2-19 | Ruby backends in the default engine (new `ruby` package): Rails routes DSL and Sinatra entry points with `before_action`/`authenticate`/`before` guards; calls through `X.new`, instance variables and class methods; Ruby sink rules including `Kernel#open`, `Marshal.load`, `ERB.new` and `html_safe` | ✅ Done (v0.21.0) |
+| 2-20 | C# backends in the default engine (new `csharp` package): ASP.NET Core controllers (attribute and conventional routing) and Minimal APIs with `[Authorize]`/`RequireAuthorization` guards; calls through C#'s declared types and interfaces; C# sink rules that leave out safe-by-default APIs (`FromSqlInterpolated`, `LocalRedirect`, `XmlDocument` without a resolver) | ✅ Done (v0.22.0) |
 
 ## Development
 
@@ -262,9 +270,10 @@ src/main/java/com/codeagent/core/
 ├── LanguageParser.java       per-language parser interface
 ├── SourceFiles.java          source file discovery (skips build/venv folders, symlinks)
 ├── model/                    CodeNodeKind, CodeEdgeKind, CodeGraphDraft (output model)
-├── rules/                    SinkRule, SinkRules (Java), PythonSinkRules, NodeSinkRules, GoSinkRules, PhpSinkRules, RubySinkRules
+├── rules/                    SinkRule, SinkRules (Java), PythonSinkRules, NodeSinkRules, GoSinkRules, PhpSinkRules, RubySinkRules, CsSinkRules
 ├── java/                     JavaLanguage, JavaProject, TypeResolver, EntryPointDetector, CodeGraphBuilder
 ├── python/                   PythonLanguage (tree-sitter), PythonModule (imports, definitions), PythonGraphBuilder (FastAPI, calls, sinks)
+├── csharp/                   CsLanguage (graph), CsProject (classes, members, types), CsRoutes (controllers, Minimal APIs)
 ├── ruby/                     RubyLanguage (graph), RubyProject (classes, ivars, types), RubyRoutes (Rails routes DSL, Sinatra)
 ├── php/                      PhpLanguage (graph), PhpProject (namespaces, classes, types), PhpRoutes (Laravel, Symfony, Slim, CodeIgniter, plain scripts)
 ├── golang/                   GoLanguage (graph), GoProject (packages, types, type inference), GoRoutes (net/http, gin, echo, chi, gorilla, fiber)
@@ -341,10 +350,10 @@ cotcha-trail  [엔진, 라이브러리]  <── 의존 ── cotcha-net     [S
 ```
 cotcha-trail                                         쓰는 쪽
 build.gradle 의 version 올리기
-git tag v0.21.0 && git push origin v0.21.0
+git tag v0.22.0 && git push origin v0.22.0
    │ GitHub Actions: 4개 OS 테스트 → ./gradlew publish
    ▼
-GitHub Packages  com.codeagent:core-code-agent:0.21.0  ◀── implementation '…:0.21.0'
+GitHub Packages  com.codeagent:core-code-agent:0.22.0  ◀── implementation '…:0.22.0'
                                                           빌드할 때 Gradle 이 받아 옴
 ```
 
@@ -407,6 +416,7 @@ Gradle 이 좌표(`group` + `rootProject.name`)를 맞춰 보고 이 레포를 �
 | Go | net/http `ServeMux`(Go 1.22 `"GET /items/{id}"` 패턴, `StripPrefix` 마운트), gin, echo, chi(`Route`, `Group`, `Mount`, `With`), gorilla/mux(`PathPrefix().Subrouter()`, `.Methods()`), fiber. 그룹과 함수로 넘긴 라우터(`func (h *Handler) Register(g *gin.RouterGroup)`)는 부르는 곳의 경로를 받는다. 미들웨어는 `guards` 로 남긴다 | COMMAND(`os/exec`), SQL(database/sql·sqlx·pgx 의 `Query`·`Exec` 에 조립한 문자열, gorm `Raw`·`Where`…), PATH(`os.Open`·`ReadFile`…, `http.ServeFile`, `c.File`), SSRF(`http.Get`, `NewRequest`, `http.Client`), OPEN_REDIRECT, XSS(`template.HTML`, 요청 값을 응답에 그대로 쓰기, HTML `c.Data`), 템플릿 주입(요청 값을 `template.Parse`), 약한 암호(md5, sha1, des, rc4, `InsecureSkipVerify`), `math/rand` | Go 에 적힌 타입으로 해석: `go.mod` 로 패키지, 리시버, 파라미터, 구조체 필드(끼워 넣은 것 포함), 생성자에서 받은 `:=`, 인터페이스 호출은 그것을 채우는 프로젝트 타입으로(이름과 파라미터 타입으로 맞춤) |
 | PHP | Laravel(`Route::get`… 과 `prefix`·`middleware`·`controller`·`group` 체인, `Route::group([...])`, `resource`·`apiResource`, `routes/api.php` 는 `/api` 아래, 컨트롤러 생성자의 `$this->middleware()`), Symfony(`#[Route]` 속성과 `@Route` 주석, 클래스 접두사, `IsGranted`·`Security` 는 guards), Slim(`$app->get`, `group(...)->add(M)`), CodeIgniter 4(`$routes->get`, 그룹 `filter`), `$_GET`·`$_POST` 를 읽는 순수 `.php` 스크립트 | COMMAND(`exec`, `system`, 백틱…), CODE_INJECTION(`eval`, `assert`, `include $x`), SQL(보간·연결로 만든 문자열을 `mysqli_query`, PDO, `DB::select`, `whereRaw`… 에), PATH(`file_get_contents`, `fopen`, `unlink`…), SSRF(`curl`, `Http::get`, Guzzle), DESERIALIZATION(`unserialize`), XXE(`LIBXML_NOENT`), OPEN_REDIRECT(`redirect`, `header('Location: …')`), XSS(요청 값을 `echo`·`response()` 에), 약한 암호·난수 | PHP 에 적힌 타입으로 해석: `namespace`·`use`, 타입 있는 파라미터·프로퍼티, 생성자 승격 프로퍼티, `new`, 반환 타입, `$this`·`self`·`parent`, 인터페이스 호출은 구현 클래스로, Laravel 파사드(`Http::timeout()->get()` 체인 포함) |
 | Ruby | Rails `config/routes.rb`(`to:`·`=>` 를 쓴 동사, `root`, `only`·`except`·`member`·`collection`·중첩을 쓴 `resources`·`resource`, `namespace`·`scope`·`controller`, Devise `authenticate`, `draw(:x)` 파일)와 컨트롤러의 인증 관련 `before_action`(`only`·`except`·`skip_before_action`·부모 포함)을 guards 로, Sinatra(`get '/x' do`, `namespace`, `before` 필터) | COMMAND(`system`, 백틱, `Kernel#open`, `Open3`, `IO.popen`), CODE_INJECTION(`eval`, `ERB.new`, `render inline:`), SQL(보간한 `where`·`find_by_sql`·`execute`, 상수가 아닌 `order`·`pluck`·`group`), PATH(`File.*`, `send_file`, `render file:`), SSRF(`Net::HTTP`, `URI.open`, HTTParty, Faraday), DESERIALIZATION(`Marshal.load`, `YAML.unsafe_load`), OPEN_REDIRECT(요청 값을 `redirect_to`), XSS(요청 값에 `html_safe`·`raw`), 약한 암호·난수 | `X.new` 값, `X.new` 로 채운 인스턴스 변수(`@x ||=` 포함), 메모이즈한 헬퍼 메서드, 클래스 메서드, 중첩을 따라 찾는 상수 |
+| C# | ASP.NET Core 컨트롤러(`[Route]`·`[HttpGet("{id}")]` 특성 라우팅, `[controller]`·`[action]` 치환과 `~/`, 특성이 없는 컨트롤러는 기본 규칙 `/{controller}/{action}`), Minimal API(`MapGet`·`MapPost`·`MapMethods`, 여러 단계 `MapGroup`). `[Authorize]`·`[AllowAnonymous]`, 인증 필터 특성, `RequireAuthorization()`·`AllowAnonymous()` 를 guards 로 | COMMAND(`Process.Start`, `ProcessStartInfo`), CODE_INJECTION(`CSharpScript`), SQL(조립한 문자열을 `FromSqlRaw`·`ExecuteSqlRaw`·Dapper·`SqlCommand`·`CommandText =` 에. `FromSqlInterpolated` 는 안전), PATH(`File.*`, `PhysicalFile`, `FileStream`), SSRF(`HttpClient`, `WebClient`), DESERIALIZATION(`BinaryFormatter`…, `TypeNameHandling` 을 켠 JSON.NET), XXE(`XmlUrlResolver`·`DtdProcessing.Parse` 를 켰을 때만), OPEN_REDIRECT(요청 값을 `Redirect`. `LocalRedirect` 는 안전), XSS(`Content(x, "text/html")`, `HtmlString`), 약한 암호·난수 | C# 에 적힌 타입으로 해석: 필드, 속성, 기본 생성자 파라미터, 타입·`var` 지역 변수, 반환 타입, 인터페이스 호출은 구현 클래스로 |
 | JS / TS / Vue / HTML | – | 줄 단위 패턴 27개 (XSS, eval, 오픈 리다이렉트, 토큰 저장, 비밀값…) | – |
 | Kotlin | – (제품이 직접 붙인다: cotcha-pinch 는 외부에 열린 안드로이드 컴포넌트를 Kotlin 핸들러로 잇는다) | Java 규칙(`SinkRules`)을 Kotlin 호출·생성자 호출에 그대로 적용 | 이름 해석: import·별칭, 파라미터·프로퍼티·지역 변수에 적힌 타입, `Foo(...)` 생성자 호출, `this`/`super`, companion 함수, 파일 최상위 함수(`파일이름Kt`), 넘겨받은 프레임워크 반환 타입 |
 | Python / FastAPI | FastAPI 라우트(`@app.get`, `@router.post`, `api_route`, `websocket`), `APIRouter(prefix=)` + `include_router(prefix=)`, `Depends`/`Security` | 약 200개 API: COMMAND(subprocess, os.system/popen, asyncio subprocess, python-nmap), SSRF(requests, httpx, aiohttp, urllib), PATH(open, pathlib, FileResponse, shutil), SQL(문자열을 조립해 넘기는 `execute`, `sqlalchemy.text`), DESERIALIZATION(pickle, yaml.load, marshal…), 코드 실행, XXE, 리다이렉트, XSS, 약한 암호·난수 | import 표로 이름 해석 (절대·상대 import, `self.`, `변수 = 호출()`, `with … as`) |
@@ -449,6 +459,12 @@ Ruby 참고:
 - 요청 값: `params`, `request.body`·`raw_post`·`headers`…, `cookies[...]`, Sinatra 블록 파라미터. `redirect_to` 는 요청 값일 때만 위험 지점이다(`root_path` 같은 경로 헬퍼는 아님). `YAML.load` 는 Psych 4 부터 안전해서 뺀다. 프로그램이 상수인 `system('cmd', arg)`(셸 없음)도 위험 지점이 아니다.
 - 따라가지 않는 것: `send`·`public_send`, 메타프로그래밍(`define_method`), `include` 로 섞은 concern, Grape·Hanami·Roda 라우트, ERB·Haml 뷰.
 
+C# 참고:
+- 저장소에 `.cs` 파일(`bin/`, `obj/`, `Migrations/`, `*.Designer.cs`, 테스트 제외)이 있으면 판별한다. tree-sitter(`tree-sitter-c-sharp`, MIT)로 파싱한다. 노드에 `language=csharp` 가 붙고, 메서드 키는 `Namespace.Class#Method`, 최상위 문장은 `Program.cs#<main>`, Minimal API 람다는 라우트로 이름 붙인다.
+- 요청 값: 요청에서 바인딩되는 액션 파라미터(`[FromQuery]`·`[FromBody]`·`[FromRoute]`·`[FromForm]`·`[FromHeader]`, 또는 `I…`·`…Service`·`…Repository`·`CancellationToken` 같은 서비스가 아닌 파라미터), Minimal API 람다 파라미터, `Request.Query`·`Form`·`Headers`·`Cookies`·`Body`.
+- 기본으로 안전한 API 는 위험 지점이 아니다: `FromSqlInterpolated`·`FromSql`, `LocalRedirect`, `XmlUrlResolver` 를 켜지 않은 `XmlDocument`, `TypeNameHandling` 없는 JSON.NET, 상수만 넘긴 `Process.Start("cmd")`.
+- 따라가지 않는 것: Razor 뷰(`@Html.Raw`), 리플렉션, 소스 생성기, DI 등록(인터페이스 호출은 구현 클래스 모두로 잇는다), 대체 정책으로 거는 전역 인증.
+
 Python 참고:
 - [tree-sitter](https://tree-sitter.github.io/) 를 [tree-sitter-ng](https://github.com/bonede/tree-sitter-ng) JNI 바인딩(MIT)으로 쓴다. 문법 오류가 있는 파일도 오류 부분만 건너뛰고 분석하고 `parseErrors` 에 남긴다.
 - 네이티브 라이브러리는 jar 안에 Linux x64/arm64, macOS x64/arm64, Windows x64 용이 들어 있다(CI 에서 Java 17 로 확인). **Windows ARM 은 지원하지 않는다**: 그 환경에서는 파이썬 파일을 건너뛰고 `parseErrors` 에 이유를 남긴다.
@@ -480,6 +496,7 @@ Python 참고:
 | 2-17 | 기본 엔진에서 Go 백엔드 분석(새 `golang` 패키지): net/http, gin, echo, chi, gorilla/mux, fiber 진입점과 그룹·마운트 경로, 함수로 넘긴 라우터, `guards`. Go 에 적힌 타입과 인터페이스로 호출 잇기. 템플릿 주입·`InsecureSkipVerify` 를 포함한 Go 위험 지점 규칙 | ✅ 완료 (v0.19.0) |
 | 2-18 | 기본 엔진에서 PHP 백엔드 분석(새 `php` 패키지): Laravel, Symfony, Slim, CodeIgniter 4, 순수 스크립트 진입점과 접두사·`guards`. PHP 에 적힌 타입·인터페이스·Laravel 파사드로 호출 잇기. XXE·`unserialize`·파일 포함을 포함한 PHP 위험 지점 규칙 | ✅ 완료 (v0.20.0) |
 | 2-19 | 기본 엔진에서 Ruby 백엔드 분석(새 `ruby` 패키지): Rails 라우트 DSL·Sinatra 진입점과 `before_action`·`authenticate`·`before` guards, `X.new`·인스턴스 변수·클래스 메서드로 호출 잇기, `Kernel#open`·`Marshal.load`·`ERB.new`·`html_safe` 를 포함한 Ruby 위험 지점 규칙 | ✅ 완료 (v0.21.0) |
+| 2-20 | 기본 엔진에서 C# 백엔드 분석(새 `csharp` 패키지): ASP.NET Core 컨트롤러(특성·기본 규칙 라우팅)와 Minimal API, `[Authorize]`·`RequireAuthorization` guards. C# 에 적힌 타입·인터페이스로 호출 잇기. 기본으로 안전한 API(`FromSqlInterpolated`, `LocalRedirect`, 리졸버 없는 `XmlDocument`)는 뺀 C# 위험 지점 규칙 | ✅ 완료 (v0.22.0) |
 
 ## 개발
 
@@ -495,9 +512,10 @@ src/main/java/com/codeagent/core/
 ├── LanguageParser.java       언어별 파서 인터페이스
 ├── SourceFiles.java          소스 파일 찾기 (빌드·가상환경 폴더, 심볼릭 링크 제외)
 ├── model/                    CodeNodeKind, CodeEdgeKind, CodeGraphDraft (출력 모델)
-├── rules/                    SinkRule, SinkRules (Java), PythonSinkRules, NodeSinkRules, GoSinkRules, PhpSinkRules, RubySinkRules
+├── rules/                    SinkRule, SinkRules (Java), PythonSinkRules, NodeSinkRules, GoSinkRules, PhpSinkRules, RubySinkRules, CsSinkRules
 ├── java/                     JavaLanguage, JavaProject, TypeResolver, EntryPointDetector, CodeGraphBuilder
 ├── python/                   PythonLanguage (tree-sitter), PythonModule (import·정의 색인), PythonGraphBuilder (FastAPI, 호출, 위험 지점)
+├── csharp/                   CsLanguage (그래프), CsProject (클래스·멤버·타입), CsRoutes (컨트롤러, Minimal API)
 ├── ruby/                     RubyLanguage (그래프), RubyProject (클래스·인스턴스 변수·타입), RubyRoutes (Rails 라우트 DSL, Sinatra)
 ├── php/                      PhpLanguage (그래프), PhpProject (namespace·클래스·타입), PhpRoutes (Laravel, Symfony, Slim, CodeIgniter, 순수 스크립트)
 ├── golang/                   GoLanguage (그래프), GoProject (패키지·타입·타입 추론), GoRoutes (net/http, gin, echo, chi, gorilla, fiber)

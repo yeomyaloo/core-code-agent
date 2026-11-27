@@ -7,6 +7,7 @@ import com.codeagent.core.kotlin.KotlinLanguage;
 import com.codeagent.core.node.NodeLanguage;
 import com.codeagent.core.php.PhpLanguage;
 import com.codeagent.core.ruby.RubyLanguage;
+import com.codeagent.core.csharp.CsLanguage;
 import com.codeagent.core.model.CodeGraphDraft;
 import com.codeagent.core.python.PythonLanguage;
 
@@ -44,7 +45,7 @@ public final class CodeGraphEngine {
         KotlinLanguage kotlin = new KotlinLanguage();
         // Node 백엔드 파일은 Node 파서가 먼저 보고, 프론트엔드 줄 검사는 그 결과를 감싼 함수에 잇는다
         NodeLanguage node = new NodeLanguage();
-        return List.of(new JavaLanguage(kotlin), new PythonLanguage(), kotlin, node, new GoLanguage(), new PhpLanguage(), new RubyLanguage(), new FrontendGraph(node));
+        return List.of(new JavaLanguage(kotlin), new PythonLanguage(), kotlin, node, new GoLanguage(), new PhpLanguage(), new RubyLanguage(), new CsLanguage(), new FrontendGraph(node));
     }
 
     /** 저장소 루트를 읽어 코드 그래프를 만든다. 분석 대상 코드는 읽기만 한다. */
