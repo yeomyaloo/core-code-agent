@@ -10,12 +10,14 @@ import com.codeagent.core.node.NodeProject.Target;
 import org.treesitter.TSNode;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.HashSet;
 import java.util.LinkedHashMap;
 import java.util.LinkedHashSet;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.regex.Pattern;
 
 import static com.codeagent.core.node.NodeFile.children;
 import static com.codeagent.core.node.NodeFile.field;
@@ -56,7 +58,7 @@ final class NodeRoutes {
         final String framework;
         String ownPrefix = "";
         final List<String[]> mounts = new ArrayList<>(); // {부모 key, 경로}
-        final List<String> middlewares = new ArrayList<>();
+        final List<Middleware> middlewares = new ArrayList<>();
         /** app.use('/rest/basket', auth): 이 라우터 기준 경로 아래에만 걸리는 미들웨어 {경로, 이름} */
         final List<String[]> scoped = new ArrayList<>();
 
@@ -66,9 +68,26 @@ final class NodeRoutes {
         }
     }
 
+    /**
+     * @param handlerText 처리기 인자 그대로 (같은 경로의 자동 생성 라우트에 guards 로 합칠 때 쓴다)
+     * @param generated   finale-rest 처럼 라이브러리가 만든 라우트
+     */
     private record PendingRoute(String routerKey, String method, String path, NodeFunction handler, List<NodeFunction> handlers,
-                                List<String> guards) {
+                                List<String> guards, String handlerText, boolean generated, String file, int offset) {
     }
+
+    /** 라우터 전체에 건 미들웨어와 등록 위치 (offset -1 이면 위치와 상관없이 모든 라우트) */
+    private record Middleware(String name, String file, int offset) {
+    }
+
+    /** 응답을 직접 보내는 처리기 (미들웨어가 아니라 끝점) */
+    private static final Pattern RESPONDS = Pattern.compile("\\b(?:res|response|reply)\\s*\\.\\s*(?:send|sendFile|sendStatus|json|jsonp|render|end|download|"
+            + "redirect|attachment|write|status\\s*\\([^)]*\\)\\s*\\.\\s*(?:send|json|end|render))\\b|\\bctx\\.body\\s*=");
+    /** next() 로 다음에 넘기는 미들웨어 (next(err) 는 오류 처리라 끝점일 수 있다) */
+    private static final Pattern PASS_THROUGH = Pattern.compile("\\bnext\\s*\\(\\s*\\)");
+    /** 경로 아래 파일을 그대로 내주는 미들웨어 */
+    private static final Pattern STATIC_SERVER = Pattern.compile("(?i)^(serveIndex|express\\.static|serveStatic|static|sirv|koaStatic|"
+            + "createProxyMiddleware|proxy)\\b");
 
     private final NodeProject project;
     private final Map<String, Router> routers = new LinkedHashMap<>();
@@ -85,11 +104,32 @@ final class NodeRoutes {
             }
         }
         List<Route> result = new ArrayList<>();
+        // finale-rest 가 만든 라우트와 같은 경로·메서드의 app.get('/api/Users', security.isAuthorized()) 는 따로 끝점이 아니라 그 앞 미들웨어다
+        Map<String, List<String>> extraGuards = new HashMap<>();
+        Set<String> generated = new HashSet<>();
+        pending.stream().filter(PendingRoute::generated).forEach(r -> generated.add(r.routerKey() + " " + r.method() + " " + r.path()));
+        List<PendingRoute> emitted = new ArrayList<>();
         for (PendingRoute route : pending) {
+            String key = route.routerKey() + " " + route.method() + " " + route.path();
+            if (!route.generated() && generated.contains(key)) {
+                List<String> merged = extraGuards.computeIfAbsent(key, k -> new ArrayList<>());
+                merged.addAll(route.guards());
+                merged.add(route.handlerText());
+            } else if (route.handler() != null) {
+                emitted.add(route);
+            }
+        }
+        for (PendingRoute route : emitted) {
             Router router = routers.get(route.routerKey());
             List<String> guards = new ArrayList<>(route.guards());
-            guards.addAll(middlewares(router, new HashSet<>()));
-            guards.removeIf(NodeRoutes::isCommon);
+            guards.addAll(extraGuards.getOrDefault(route.routerKey() + " " + route.method() + " " + route.path(), List.of()));
+            for (Middleware mw : middlewares(router, new HashSet<>())) {
+                // 같은 파일에서 라우트보다 뒤에 등록한 app.use 는 그 라우트 앞에서 돌지 않는다
+                if (mw.offset() < 0 || !mw.file().equals(route.file()) || mw.offset() < route.offset()) {
+                    guards.add(mw.name());
+                }
+            }
+            guards.removeIf(g -> g.isBlank() || isCommon(g));
             for (String prefix : prefixes(router, new HashSet<>())) {
                 String full = EntryPointDetector.joinPath(prefix, route.path());
                 List<String> withScoped = new ArrayList<>(guards);
@@ -116,6 +156,11 @@ final class NodeRoutes {
         if (callee.getType() != null && callee.getType().equals("member_expression")) {
             String property = file.text(field(callee, "property"));
             TSNode object = field(callee, "object");
+            if (property.equals("resource") && args.size() == 1 && args.get(0).getType().equals("object")
+                    && file.text(object).matches("(?i).*(finale|epilogue).*")) {
+                finaleResource(module, context, call, args.get(0));
+                return;
+            }
             // X.route('/p').get(h).post(h)
             if (VERBS.contains(property) && object != null && object.getType().equals("call_expression")) {
                 TSNode routeCall = routeCall(file, object);
@@ -197,6 +242,9 @@ final class NodeRoutes {
             }
         }
         boolean pathScoped = !paths.isEmpty();
+        if (pathScoped && args.size() >= 2 && useEndpoint(module, context, router, paths, args)) {
+            return;
+        }
         List<Router> children = new ArrayList<>();
         List<String> names = new ArrayList<>();
         for (TSNode arg : pathScoped ? args.subList(1, args.size()) : args) {
@@ -214,7 +262,8 @@ final class NodeRoutes {
         if (children.isEmpty()) {
             if (!pathScoped) {
                 // app.use(auth): 이 라우터의 모든 라우트 앞
-                router.middlewares.addAll(names);
+                int offset = args.isEmpty() ? 0 : args.get(0).getStartByte();
+                names.forEach(n -> router.middlewares.add(new Middleware(n, file.filePath, offset)));
             } else {
                 // app.use('/rest/basket', auth): 그 경로 아래 라우트에만
                 for (String scope : paths) {
@@ -223,7 +272,7 @@ final class NodeRoutes {
             }
         } else {
             // app.use('/api/orders', requireAuth, orders): 같이 붙인 미들웨어는 그 라우터 앞
-            children.forEach(c -> c.middlewares.addAll(names));
+            children.forEach(c -> names.forEach(n -> c.middlewares.add(new Middleware(n, file.filePath, -1))));
         }
     }
 
@@ -314,7 +363,7 @@ final class NodeRoutes {
         }
         NodeFile file = module.file;
         switch (expr.getType()) {
-            case "identifier" -> {
+            case "identifier", "shorthand_property_identifier" -> {
                 String name = file.text(expr);
                 // 함수 안 지역 변수
                 if (context != null) {
@@ -518,13 +567,14 @@ final class NodeRoutes {
         return List.copyOf(result);
     }
 
-    private List<String> middlewares(Router router, Set<String> visiting) {
+    private List<Middleware> middlewares(Router router, Set<String> visiting) {
         if (router == null || !visiting.add(router.key)) {
             return List.of();
         }
-        List<String> result = new ArrayList<>(router.middlewares);
+        List<Middleware> result = new ArrayList<>(router.middlewares);
         for (String[] mount : router.mounts) {
-            result.addAll(middlewares(routers.get(mount[0]), visiting));
+            // 바깥 라우터의 미들웨어는 마운트 위치를 모르므로 모두 건다
+            middlewares(routers.get(mount[0]), visiting).forEach(m -> result.add(new Middleware(m.name(), m.file(), -1)));
         }
         return result;
     }
@@ -553,9 +603,12 @@ final class NodeRoutes {
                 }
             }
         }
-        if (!handlers.isEmpty()) {
-            pending.add(new PendingRoute(router.key, method, path, handlers.get(handlers.size() - 1), List.copyOf(handlers), guards));
-        }
+        TSNode lastArg = args.isEmpty() ? null : args.get(args.size() - 1);
+        String handlerText = lastArg == null ? "" : NodeProject.isFunction(lastArg) ? "inline@L" + NodeFile.line(lastArg)
+                : module.file.text(lastArg).replaceAll("\\s+", " ");
+        int offset = lastArg == null ? 0 : lastArg.getStartByte();
+        pending.add(new PendingRoute(router.key, method, path, handlers.isEmpty() ? null : handlers.get(handlers.size() - 1),
+                List.copyOf(handlers), guards, handlerText, false, module.file.filePath, offset));
     }
 
     /** 라우트 인자 → 프로젝트 함수 (이름 없는 처리기는 "METHOD 경로" 로 이름 붙인다) */
@@ -604,6 +657,173 @@ final class NodeRoutes {
             }
         }
         return NodeProject.isFunction(field(fn.node(), "body"));
+    }
+
+    /**
+     * 경로를 준 app.use 의 마지막 인자가 응답을 직접 보내거나(파일 내주기 등) 정적 서버면 그 경로의 끝점으로 본다.
+     * 앞의 인자들은 그 끝점의 guards 이자 경로 아래 미들웨어다.
+     */
+    private boolean useEndpoint(NodeModule module, NodeFunction context, Router router, List<String> paths, List<TSNode> args) {
+        NodeFile file = module.file;
+        TSNode last = args.get(args.size() - 1);
+        if (routerOf(module, context, last, 0) != null) {
+            return false;
+        }
+        String text = file.text(last).replaceAll("\\s+", " ");
+        NodeFunction handler = null;
+        if (STATIC_SERVER.matcher(text).find()) {
+            handler = project.functionFor(file, last, "<static> " + paths.get(0));
+        } else if (NodeProject.isFunction(last)) {
+            if (!responds(file.text(last))) {
+                return false;
+            }
+            handler = project.functionFor(file, last, "ANY " + paths.get(0));
+        } else {
+            NodeFunction resolved = handlerFunction(module, context, "ANY", paths.get(0), last, true);
+            if (resolved == null || !responds(resolved.file().text(resolved.node()))) {
+                return false;
+            }
+            handler = resolved;
+        }
+        List<String> guards = new ArrayList<>();
+        for (TSNode arg : args.subList(1, args.size() - 1)) {
+            String name = guardName(file, arg);
+            if (!isCommon(name)) {
+                guards.add(name);
+                paths.forEach(p -> router.scoped.add(new String[]{p, name}));
+            }
+        }
+        for (String path : paths) {
+            pending.add(new PendingRoute(router.key, "ANY", path, handler, List.of(handler), guards, text, false, file.filePath,
+                    last.getStartByte()));
+        }
+        return true;
+    }
+
+    /** 응답을 보내고 다음으로 넘기지 않는다 (next() 로 넘기면 미들웨어, next(err) 는 오류 처리라 괜찮다) */
+    private static boolean responds(String code) {
+        return RESPONDS.matcher(code).find() && !PASS_THROUGH.matcher(code).find();
+    }
+
+    /** finale-rest·epilogue: finale.resource({ model, endpoints: ['/api/Users', '/api/Users/:id'] }) 가 만드는 REST 라우트 */
+    private void finaleResource(NodeModule module, NodeFunction context, TSNode call, TSNode config) {
+        NodeFile file = module.file;
+        TSNode endpoints = null;
+        for (TSNode pair : NodeFile.children(config, "pair")) {
+            if ("endpoints".equals(NodeProject.propertyName(file, field(pair, "key")))) {
+                endpoints = field(pair, "value");
+            }
+        }
+        Router router = finaleRouter(module, context);
+        if (endpoints == null || router == null) {
+            return;
+        }
+        NodeFunction handler = project.functionFor(file, call, "<finale resource>");
+        for (TSNode item : NodeFile.namedChildren(endpoints)) {
+            for (String path : expandTemplate(module, context, call, item)) {
+                boolean single = path.matches(".*/:\\w+$");
+                for (String method : single ? List.of("GET", "PUT", "PATCH", "DELETE") : List.of("GET", "POST")) {
+                    pending.add(new PendingRoute(router.key, method, path, handler, List.of(handler), List.of(), "", true,
+                            file.filePath, call.getStartByte()));
+                }
+            }
+        }
+    }
+
+    /** finale.initialize({ app }) 의 app */
+    private Router finaleRouter(NodeModule module, NodeFunction context) {
+        NodeFile file = module.file;
+        for (TSNode call : NodeFile.descendants(file.root, Set.of("call_expression"), Set.of())) {
+            TSNode callee = field(call, "function");
+            List<TSNode> args = arguments(call);
+            if (callee == null || !callee.getType().equals("member_expression") || args.isEmpty() || !args.get(0).getType().equals("object")
+                    || !file.text(field(callee, "property")).equals("initialize")) {
+                continue;
+            }
+            for (TSNode member : NodeFile.namedChildren(args.get(0))) {
+                TSNode value = member.getType().equals("pair") && "app".equals(NodeProject.propertyName(file, field(member, "key")))
+                        ? field(member, "value") : member.getType().equals("shorthand_property_identifier") && file.text(member).equals("app")
+                        ? member : null;
+                if (value != null) {
+                    Router router = routerOf(module, enclosingFunction(module, call), value, 0);
+                    if (router != null) {
+                        return router;
+                    }
+                }
+            }
+        }
+        return null;
+    }
+
+    /**
+     * '/api/Users' 그대로, 또는 for (const { name } of models) 안의 `/api/${name}s` 를 배열 원소마다 편다.
+     * 배열은 객체 리터럴 배열이어야 한다 (원소의 문자열 속성만 쓴다).
+     */
+    private List<String> expandTemplate(NodeModule module, NodeFunction context, TSNode at, TSNode item) {
+        NodeFile file = module.file;
+        String plain = file.stringValue(item);
+        if (plain != null) {
+            return List.of(plain);
+        }
+        if (!item.getType().equals("template_string")) {
+            return List.of();
+        }
+        String template = file.text(item);
+        template = template.substring(1, template.length() - 1);
+        TSNode loop = null;
+        for (TSNode current = at.getParent(); !isNull(current); current = current.getParent()) {
+            if (current.getType().equals("for_in_statement")) {
+                loop = current;
+                break;
+            }
+        }
+        if (loop == null) {
+            return List.of();
+        }
+        TSNode right = field(loop, "right");
+        TSNode array = null;
+        if (right != null && right.getType().equals("identifier")) {
+            String name = file.text(right);
+            array = context == null ? null : project.locals(context).get(name);
+            if (array == null) {
+                array = module.values.get(name);
+            }
+        } else if (right != null && right.getType().equals("array")) {
+            array = right;
+        }
+        if (array == null || !array.getType().equals("array")) {
+            return List.of();
+        }
+        List<String> result = new ArrayList<>();
+        for (TSNode element : NodeFile.namedChildren(array)) {
+            if (!element.getType().equals("object")) {
+                continue;
+            }
+            Map<String, String> values = new HashMap<>();
+            for (TSNode pair : NodeFile.children(element, "pair")) {
+                String value = file.stringValue(field(pair, "value"));
+                if (value != null) {
+                    values.put(NodeProject.propertyName(file, field(pair, "key")), value);
+                }
+            }
+            java.util.regex.Matcher m = Pattern.compile("\\$\\{\\s*([\\w.]+)\\s*}").matcher(template);
+            StringBuilder sb = new StringBuilder();
+            boolean ok = true;
+            while (m.find()) {
+                String expr = m.group(1);
+                String value = values.get(expr.substring(expr.lastIndexOf('.') + 1));
+                if (value == null) {
+                    ok = false;
+                    break;
+                }
+                m.appendReplacement(sb, java.util.regex.Matcher.quoteReplacement(value));
+            }
+            if (ok) {
+                m.appendTail(sb);
+                result.add(sb.toString());
+            }
+        }
+        return result;
     }
 
     static boolean isCommon(String name) {

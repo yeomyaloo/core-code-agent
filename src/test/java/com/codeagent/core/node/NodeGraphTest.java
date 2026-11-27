@@ -103,6 +103,30 @@ class NodeGraphTest {
                   return (req, res) => res.sendFile(req.params.id);
                 };
                 """);
+        // finale-rest 가 만드는 라우트, 경로를 준 app.use 끝점, 등록 순서
+        write("src/rest.js", """
+                const express = require('express');
+                const finale = require('finale-rest');
+                const serveIndex = require('serve-index');
+                const { requireAuth } = require('./middleware/auth');
+                const app = express();
+                function appendUserId() { return (req, res, next) => { req.body.UserId = 1; next(); }; }
+                function servePublicFiles() { return (req, res) => { res.status(404).send('none'); }; }
+                function audit(req, res, next) { next(); }
+
+                app.use('/files', serveIndex('public', { icons: true }));
+                app.use('/files/:file', servePublicFiles());
+                app.use('/rest/basket', requireAuth, appendUserId());
+                app.get('/rest/basket/:id', (req, res) => res.json({}));
+                app.get('/api/Users', requireAuth);
+                finale.initialize({ app, sequelize: {} });
+                const models = [{ name: 'User' }, { name: 'Product' }];
+                for (const { name } of models) {
+                  finale.resource({ model: {}, endpoints: [`/api/${name}s`, `/api/${name}s/:id`] });
+                }
+                app.get('/late', (req, res) => res.json({}));
+                app.use(audit);
+                """);
         // ---- NestJS ----
         write("src/users/users.controller.ts", """
                 import { Controller, Get, Post, Body, Param, UseGuards } from '@nestjs/common';
@@ -209,6 +233,34 @@ class NodeGraphTest {
         assertThat(entry("GET /rest/history/:id").props().get("guards")).isEqualTo(List.of("requireAuth"));
         // helmet 같은 기반 미들웨어는 단서가 아니고, 경로가 다른 라우트에는 걸리지 않는다
         assertThat(entry("GET /rest/open").props().get("guards")).isEqualTo(List.of());
+    }
+
+    @Test
+    void finale_rest_가_만드는_라우트와_같은_경로의_미들웨어를_읽는다() {
+        assertThat(entries()).contains(
+                "GET /api/Users -> src/rest.js#<finale resource>",
+                "POST /api/Products -> src/rest.js#<finale resource>",
+                "DELETE /api/Products/:id -> src/rest.js#<finale resource>",
+                "PUT /api/Users/:id -> src/rest.js#<finale resource>");
+        // app.get('/api/Users', requireAuth) 는 따로 끝점이 아니라 자동 생성 라우트의 guards
+        assertThat(entries().stream().filter(e -> e.startsWith("GET /api/Users ->"))).hasSize(1);
+        assertThat((List<Object>) entry("GET /api/Users").props().get("guards")).contains("requireAuth");
+        assertThat(entry("PUT /api/Products/:id").props().get("guards")).isEqualTo(List.of());
+    }
+
+    @Test
+    void 경로를_준_app_use_가_응답하면_끝점으로_본다() {
+        assertThat(entries()).contains(
+                "ANY /files -> src/rest.js#<static> /files",
+                "ANY /files/:file -> src/rest.js#servePublicFiles");
+        // next() 로 넘기는 미들웨어는 끝점이 아니라 그 아래 라우트의 guards
+        assertThat(entries()).noneMatch(e -> e.startsWith("ANY /rest/basket "));
+        assertThat((List<Object>) entry("GET /rest/basket/:id").props().get("guards")).contains("requireAuth", "appendUserId()");
+    }
+
+    @Test
+    void 라우트보다_뒤에_등록한_미들웨어는_guards_가_아니다() {
+        assertThat(entry("GET /late").props().get("guards")).isEqualTo(List.of());
     }
 
     @Test
