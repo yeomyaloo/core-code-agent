@@ -4,7 +4,7 @@ plugins {
 }
 
 group = 'com.codeagent'
-version = '0.20.0'
+version = '0.21.0'
 
 java {
 	toolchain {
@@ -37,6 +37,8 @@ dependencies {
 	implementation 'io.github.bonede:tree-sitter-go:0.23.3'
 	// PHP 백엔드
 	implementation 'io.github.bonede:tree-sitter-php:0.23.11'
+	// Ruby 백엔드
+	implementation 'io.github.bonede:tree-sitter-ruby:0.23.1'
 
 	testImplementation platform('org.junit:junit-bom:5.13.4')
 	testImplementation 'org.junit.jupiter:junit-jupiter'
