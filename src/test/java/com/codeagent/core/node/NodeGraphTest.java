@@ -60,6 +60,9 @@ class NodeGraphTest {
                 app.use(['/rest/a', '/rest/b'], requireAuth);
                 app.get('/rest/history/:id', asyncHandler(orderHistory()));
                 app.get('/rest/open', asyncHandler(orderHistory()));
+                // 마운트보다 뒤에 등록한 미들웨어는 마운트한 라우터의 라우트에 걸리지 않는다
+                function errorLogger(err, req, res, next) { next(err); }
+                app.use(errorLogger);
                 module.exports = app;
                 """);
         write("src/routes/products.js", """

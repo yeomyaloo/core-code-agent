@@ -71,7 +71,7 @@ repositories {
 }
 
 dependencies {
-    implementation 'com.codeagent:core-code-agent:0.24.0'   // bump the number to upgrade
+    implementation 'com.codeagent:core-code-agent:0.25.0'   // bump the number to upgrade
 }
 ```
 
@@ -103,10 +103,10 @@ Only the shared engine was pulled out, because a Spring Boot application cannot 
 ```
 cotcha-trail                                         consumers
 bump version in build.gradle
-git tag v0.24.0 && git push origin v0.24.0
+git tag v0.25.0 && git push origin v0.25.0
    │ GitHub Actions: tests on 4 OSes, then ./gradlew publish
    ▼
-GitHub Packages  com.codeagent:core-code-agent:0.24.0  ◀── implementation '…:0.24.0'
+GitHub Packages  com.codeagent:core-code-agent:0.25.0  ◀── implementation '…:0.25.0'
                                                           Gradle downloads it at build time
 ```
 
@@ -194,7 +194,7 @@ Node.js notes:
 - Browser code folders (`public`, `static`, `client`, `frontend`, `web`), tests, `.d.ts` and minified files are skipped. The line-based frontend scanner still runs on backend files for secrets; its findings there get `frontend=false` and a CALLS edge from the enclosing Node function, so they have entry paths too.
 - A call is a sink only when the argument can carry input: built strings (template with `${}`, `+`) for SQL/eval, request values (`req.body`, `req.query`, `ctx.request.body`, NestJS `@Body()`/`@Query()` parameters, and locals assigned from them) for NoSQL, prototype pollution and `res.send`, and any non-literal argument for command, path and SSRF. Methods like `query`, `findOne` and `sendFile` match by name when the receiver is not known (a DB pool or an Express response).
 - Handler factories are followed (`app.post('/login', login())`, `asyncHandler(resetPassword())`: the factory that returns the handler is the handler). Path-scoped middleware (`app.use('/rest/basket', auth)`, also an array of paths) is kept as a guard on the routes under that path; security-header, logging, parser and upload middleware (helmet, cors, morgan, multer…) is not. Permission checks inside handlers are not kept as guards.
-- Routes that libraries or `app.use` create are entry points too: finale-rest/epilogue `finale.resource({ endpoints })` (GET/POST on the list path, GET/PUT/PATCH/DELETE on `/:id`; a template path inside `for (const { name } of models)` is expanded per element), with an explicit `app.get('/api/Users', auth)` on the same path merged in as its guard; and a path-scoped `app.use` whose last argument serves files or responds (`app.use('/ftp', serveIndex(...))`, `express.static`, a proxy, a handler that calls `res.send`) is an `ANY /path` endpoint. Middleware that calls `next()` stays a guard. Middleware registered after a route in the same file is not that route's guard (Express runs in registration order).
+- Routes that libraries or `app.use` create are entry points too: finale-rest/epilogue `finale.resource({ endpoints })` (GET/POST on the list path, GET/PUT/PATCH/DELETE on `/:id`; a template path inside `for (const { name } of models)` is expanded per element), with an explicit `app.get('/api/Users', auth)` on the same path merged in as its guard; and a path-scoped `app.use` whose last argument serves files or responds (`app.use('/ftp', serveIndex(...))`, `express.static`, a proxy, a handler that calls `res.send`) is an `ANY /path` endpoint. Middleware that calls `next()` stays a guard. Middleware registered after a route in the same file is not that route's guard, and a parent's middleware registered after a router is mounted is not a guard on that router's routes (Express runs in registration order).
 
 Go notes:
 - Detected when the repository has `.go` files (not `vendor/`, `testdata/`, `_test.go`). Parsed with tree-sitter (`tree-sitter-go`, MIT). Nodes carry `language=go`; function keys are `dir#Func` and `dir#Type.Method`, and anonymous handlers are named after their route (`internal/handlers#GET /files/:name`).
@@ -253,6 +253,7 @@ Python notes:
 | 2-20 | C# backends in the default engine (new `csharp` package): ASP.NET Core controllers (attribute and conventional routing) and Minimal APIs with `[Authorize]`/`RequireAuthorization` guards; calls through C#'s declared types and interfaces; C# sink rules that leave out safe-by-default APIs (`FromSqlInterpolated`, `LocalRedirect`, `XmlDocument` without a resolver) | ✅ Done (v0.22.0) |
 | 2-21 | Node.js on a real app (OWASP Juice Shop): handler factories (`login()`, `asyncHandler(x())`), path-scoped and array-path `app.use` middleware as guards, infrastructure middleware left out of guards, NoSQL `update`/`count`/`distinct`. Juice Shop entry points 17 → 99 | ✅ Done (v0.23.0) |
 | 2-22 | Node.js routes that Juice Shop runs exposed: finale-rest generated REST routes (template paths expanded from the model loop, explicit guard routes merged), path-scoped `app.use` that serves files or responds as `ANY` endpoints (`/ftp`, `/encryptionkeys`, `/support/logs`, `/metrics`), registration order for middleware. Juice Shop entry points 99 → 175 | ✅ Done (v0.24.0) |
+| 2-23 | Node.js middleware order across mounts: a parent's `app.use` registered after `app.use('/x', router)` is not a guard on that router's routes (Juice Shop's trailing error handler and SPA fallback no longer show up as guards) | ✅ Done (v0.25.0) |
 
 ## Development
 
@@ -353,10 +354,10 @@ cotcha-trail  [엔진, 라이브러리]  <── 의존 ── cotcha-net     [S
 ```
 cotcha-trail                                         쓰는 쪽
 build.gradle 의 version 올리기
-git tag v0.24.0 && git push origin v0.24.0
+git tag v0.25.0 && git push origin v0.25.0
    │ GitHub Actions: 4개 OS 테스트 → ./gradlew publish
    ▼
-GitHub Packages  com.codeagent:core-code-agent:0.24.0  ◀── implementation '…:0.24.0'
+GitHub Packages  com.codeagent:core-code-agent:0.25.0  ◀── implementation '…:0.25.0'
                                                           빌드할 때 Gradle 이 받아 옴
 ```
 
@@ -444,7 +445,7 @@ Node.js 참고:
 - 브라우저 코드 폴더(`public`, `static`, `client`, `frontend`, `web`), 테스트, `.d.ts`, 압축 파일은 건너뛴다. 줄 단위 프론트엔드 검사는 백엔드 파일에서도 비밀값 등을 찾고, 거기서 찾은 것은 `frontend=false` 에 감싼 Node 함수에서 CALLS 로 이어서 진입점 경로가 생긴다.
 - 인자가 입력을 실을 수 있을 때만 위험 지점이다: SQL·eval 은 조립한 문자열(`${}` 템플릿, `+`), NoSQL·프로토타입 오염·`res.send` 는 요청 값(`req.body`, `req.query`, `ctx.request.body`, NestJS `@Body()`·`@Query()` 파라미터와 그것을 받은 지역 변수), 명령·경로·SSRF 는 리터럴이 아닌 인자. `query`·`findOne`·`sendFile` 같은 메서드는 받는 쪽(DB 풀, Express 응답)을 모르면 이름으로 맞춘다.
 - 처리기를 만드는 함수도 따라간다(`app.post('/login', login())`, `asyncHandler(resetPassword())`: 처리기를 돌려주는 함수를 처리기로 본다). 경로를 준 미들웨어(`app.use('/rest/basket', auth)`, 경로 배열 포함)는 그 경로 아래 라우트의 guards 로 남기고, 보안 헤더·로깅·파서·업로드 미들웨어(helmet, cors, morgan, multer…)는 뺀다. 처리기 안에서 하는 권한 검사는 guards 로 남기지 않는다.
-- 라이브러리나 `app.use` 가 만드는 라우트도 진입점이다: finale-rest·epilogue `finale.resource({ endpoints })`(목록 경로는 GET·POST, `/:id` 는 GET·PUT·PATCH·DELETE. `for (const { name } of models)` 안의 템플릿 경로는 원소마다 편다)는 같은 경로에 따로 단 `app.get('/api/Users', auth)` 를 그 guards 로 합친다. 경로를 준 `app.use` 의 마지막 인자가 파일을 내주거나 응답을 보내면(`app.use('/ftp', serveIndex(...))`, `express.static`, 프록시, `res.send` 를 부르는 처리기) `ANY /path` 끝점이다. `next()` 를 부르는 미들웨어는 guards 로 남는다. 같은 파일에서 라우트보다 뒤에 등록한 미들웨어는 그 라우트의 guards 가 아니다(Express 는 등록 순서대로 돈다).
+- 라이브러리나 `app.use` 가 만드는 라우트도 진입점이다: finale-rest·epilogue `finale.resource({ endpoints })`(목록 경로는 GET·POST, `/:id` 는 GET·PUT·PATCH·DELETE. `for (const { name } of models)` 안의 템플릿 경로는 원소마다 편다)는 같은 경로에 따로 단 `app.get('/api/Users', auth)` 를 그 guards 로 합친다. 경로를 준 `app.use` 의 마지막 인자가 파일을 내주거나 응답을 보내면(`app.use('/ftp', serveIndex(...))`, `express.static`, 프록시, `res.send` 를 부르는 처리기) `ANY /path` 끝점이다. `next()` 를 부르는 미들웨어는 guards 로 남는다. 같은 파일에서 라우트보다 뒤에 등록한 미들웨어는 그 라우트의 guards 가 아니고, 라우터를 마운트한 뒤에 등록한 바깥 미들웨어도 그 라우터 라우트의 guards 가 아니다(Express 는 등록 순서대로 돈다).
 
 Go 참고:
 - 저장소에 `.go` 파일(`vendor/`, `testdata/`, `_test.go` 제외)이 있으면 판별한다. tree-sitter(`tree-sitter-go`, MIT)로 파싱한다. 노드에 `language=go` 가 붙고, 함수 키는 `폴더#함수`, `폴더#타입.메서드` 이며 이름 없는 처리기는 라우트로 이름 붙인다(`internal/handlers#GET /files/:name`).
@@ -503,6 +504,7 @@ Python 참고:
 | 2-20 | 기본 엔진에서 C# 백엔드 분석(새 `csharp` 패키지): ASP.NET Core 컨트롤러(특성·기본 규칙 라우팅)와 Minimal API, `[Authorize]`·`RequireAuthorization` guards. C# 에 적힌 타입·인터페이스로 호출 잇기. 기본으로 안전한 API(`FromSqlInterpolated`, `LocalRedirect`, 리졸버 없는 `XmlDocument`)는 뺀 C# 위험 지점 규칙 | ✅ 완료 (v0.22.0) |
 | 2-21 | 실제 앱(OWASP Juice Shop)으로 본 Node.js 보강: 처리기를 만드는 함수(`login()`, `asyncHandler(x())`), 경로·경로 배열을 준 `app.use` 미들웨어를 guards 로, 기반 미들웨어는 guards 에서 뺌, NoSQL `update`·`count`·`distinct`. Juice Shop 진입점 17 → 99 | ✅ 완료 (v0.23.0) |
 | 2-22 | Juice Shop 실행이 짚은 Node.js 라우트: finale-rest 가 만드는 REST 라우트(모델 반복문의 템플릿 경로를 펴고, 같은 경로의 guards 라우트를 합침), 파일을 내주거나 응답하는 경로 지정 `app.use` 를 `ANY` 끝점으로(`/ftp`, `/encryptionkeys`, `/support/logs`, `/metrics`), 미들웨어 등록 순서. Juice Shop 진입점 99 → 175 | ✅ 완료 (v0.24.0) |
+| 2-23 | 마운트를 거친 Node.js 미들웨어 순서: `app.use('/x', router)` 보다 뒤에 등록한 바깥 `app.use` 는 그 라우터 라우트의 guards 가 아니다(Juice Shop 맨 끝 오류 처리기·SPA 대체 처리기가 더는 guards 로 나오지 않음) | ✅ 완료 (v0.25.0) |
 
 ## 개발
 

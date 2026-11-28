@@ -57,7 +57,7 @@ final class NodeRoutes {
         final String key;
         final String framework;
         String ownPrefix = "";
-        final List<String[]> mounts = new ArrayList<>(); // {부모 key, 경로}
+        final List<String[]> mounts = new ArrayList<>(); // {부모 key, 경로, 마운트한 파일, 마운트 위치}
         final List<Middleware> middlewares = new ArrayList<>();
         /** app.use('/rest/basket', auth): 이 라우터 기준 경로 아래에만 걸리는 미들웨어 {경로, 이름} */
         final List<String[]> scoped = new ArrayList<>();
@@ -221,7 +221,7 @@ final class NodeRoutes {
             Router parent = routerOf(module, context, args.get(i), 0);
             if (parent != null) {
                 Router child = routers.computeIfAbsent(f.fn().key() + "#param:" + params.get(i), k -> new Router(k, parent.framework));
-                child.mounts.add(new String[]{parent.key, ""});
+                child.mounts.add(new String[]{parent.key, "", module.file.filePath, String.valueOf(call.getStartByte())});
             }
         }
     }
@@ -250,7 +250,7 @@ final class NodeRoutes {
         for (TSNode arg : pathScoped ? args.subList(1, args.size()) : args) {
             Router child = routerOf(module, context, arg, 0);
             if (child != null && child != router) {
-                child.mounts.add(new String[]{router.key, path == null ? "" : path});
+                child.mounts.add(new String[]{router.key, path == null ? "" : path, file.filePath, String.valueOf(arg.getStartByte())});
                 children.add(child);
             } else {
                 String name = guardName(file, arg);
@@ -297,7 +297,7 @@ final class NodeRoutes {
         }
         String param = f.fn().paramTypes().keySet().iterator().next();
         Router child = routers.computeIfAbsent(f.fn().key() + "#param:" + param, k -> new Router(k, router.framework));
-        child.mounts.add(new String[]{router.key, prefix});
+        child.mounts.add(new String[]{router.key, prefix, file.filePath, String.valueOf(args.get(0).getStartByte())});
     }
 
     /** fastify.route({ method: 'GET', url: '/x', preHandler, handler }) */
@@ -573,9 +573,16 @@ final class NodeRoutes {
         }
         List<Middleware> result = new ArrayList<>(router.middlewares);
         for (String[] mount : router.mounts) {
-            // 바깥 라우터의 미들웨어는 마운트 위치를 모르므로 모두 건다
-            middlewares(routers.get(mount[0]), visiting).forEach(m -> result.add(new Middleware(m.name(), m.file(), -1)));
+            // 바깥 라우터의 미들웨어는 마운트보다 앞에 등록한 것만 건다 (Express 는 등록 순서대로 돈다).
+            // 안쪽 라우트와는 위치를 비교할 수 없으니 넘길 때는 -1(위치 상관없음)로 바꾼다
+            int at = Integer.parseInt(mount[3]);
+            for (Middleware m : middlewares(routers.get(mount[0]), visiting)) {
+                if (m.offset() < 0 || !m.file().equals(mount[2]) || m.offset() < at) {
+                    result.add(new Middleware(m.name(), m.file(), -1));
+                }
+            }
         }
+        visiting.remove(router.key);
         return result;
     }
 
