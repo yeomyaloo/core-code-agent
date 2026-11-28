@@ -71,7 +71,7 @@ repositories {
 }
 
 dependencies {
-    implementation 'com.codeagent:core-code-agent:0.25.0'   // bump the number to upgrade
+    implementation 'com.codeagent:core-code-agent:0.25.1'   // bump the number to upgrade
 }
 ```
 
@@ -103,10 +103,10 @@ Only the shared engine was pulled out, because a Spring Boot application cannot 
 ```
 cotcha-trail                                         consumers
 bump version in build.gradle
-git tag v0.25.0 && git push origin v0.25.0
+git tag v0.25.1 && git push origin v0.25.1
    │ GitHub Actions: tests on 4 OSes, then ./gradlew publish
    ▼
-GitHub Packages  com.codeagent:core-code-agent:0.25.0  ◀── implementation '…:0.25.0'
+GitHub Packages  com.codeagent:core-code-agent:0.25.1  ◀── implementation '…:0.25.1'
                                                           Gradle downloads it at build time
 ```
 
@@ -254,6 +254,7 @@ Python notes:
 | 2-21 | Node.js on a real app (OWASP Juice Shop): handler factories (`login()`, `asyncHandler(x())`), path-scoped and array-path `app.use` middleware as guards, infrastructure middleware left out of guards, NoSQL `update`/`count`/`distinct`. Juice Shop entry points 17 → 99 | ✅ Done (v0.23.0) |
 | 2-22 | Node.js routes that Juice Shop runs exposed: finale-rest generated REST routes (template paths expanded from the model loop, explicit guard routes merged), path-scoped `app.use` that serves files or responds as `ANY` endpoints (`/ftp`, `/encryptionkeys`, `/support/logs`, `/metrics`), registration order for middleware. Juice Shop entry points 99 → 175 | ✅ Done (v0.24.0) |
 | 2-23 | Node.js middleware order across mounts: a parent's `app.use` registered after `app.use('/x', router)` is not a guard on that router's routes (Juice Shop's trailing error handler and SPA fallback no longer show up as guards) | ✅ Done (v0.25.0) |
+| 2-24 | Node.js speed: the table of local names is built once per function instead of on every call lookup. Large route files (hundreds of routes in one function) were quadratic; Juice Shop analysis 120 s → 11 s, same graph | ✅ Done (v0.25.1) |
 
 ## Development
 
@@ -354,10 +355,10 @@ cotcha-trail  [엔진, 라이브러리]  <── 의존 ── cotcha-net     [S
 ```
 cotcha-trail                                         쓰는 쪽
 build.gradle 의 version 올리기
-git tag v0.25.0 && git push origin v0.25.0
+git tag v0.25.1 && git push origin v0.25.1
    │ GitHub Actions: 4개 OS 테스트 → ./gradlew publish
    ▼
-GitHub Packages  com.codeagent:core-code-agent:0.25.0  ◀── implementation '…:0.25.0'
+GitHub Packages  com.codeagent:core-code-agent:0.25.1  ◀── implementation '…:0.25.1'
                                                           빌드할 때 Gradle 이 받아 옴
 ```
 
@@ -505,6 +506,7 @@ Python 참고:
 | 2-21 | 실제 앱(OWASP Juice Shop)으로 본 Node.js 보강: 처리기를 만드는 함수(`login()`, `asyncHandler(x())`), 경로·경로 배열을 준 `app.use` 미들웨어를 guards 로, 기반 미들웨어는 guards 에서 뺌, NoSQL `update`·`count`·`distinct`. Juice Shop 진입점 17 → 99 | ✅ 완료 (v0.23.0) |
 | 2-22 | Juice Shop 실행이 짚은 Node.js 라우트: finale-rest 가 만드는 REST 라우트(모델 반복문의 템플릿 경로를 펴고, 같은 경로의 guards 라우트를 합침), 파일을 내주거나 응답하는 경로 지정 `app.use` 를 `ANY` 끝점으로(`/ftp`, `/encryptionkeys`, `/support/logs`, `/metrics`), 미들웨어 등록 순서. Juice Shop 진입점 99 → 175 | ✅ 완료 (v0.24.0) |
 | 2-23 | 마운트를 거친 Node.js 미들웨어 순서: `app.use('/x', router)` 보다 뒤에 등록한 바깥 `app.use` 는 그 라우터 라우트의 guards 가 아니다(Juice Shop 맨 끝 오류 처리기·SPA 대체 처리기가 더는 guards 로 나오지 않음) | ✅ 완료 (v0.25.0) |
+| 2-24 | Node.js 속도: 지역 이름 표를 호출을 풀 때마다가 아니라 함수마다 한 번만 만든다. 한 함수에 라우트가 수백 개인 큰 파일에서 제곱으로 느려졌다. Juice Shop 분석 120초 → 11초, 그래프는 같음 | ✅ 완료 (v0.25.1) |
 
 ## 개발
 

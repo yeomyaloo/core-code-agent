@@ -929,8 +929,21 @@ public final class NodeProject {
     static final Set<String> FUNCTION_TYPES = Set.of("function_declaration", "generator_function_declaration", "arrow_function",
             "function_expression", "function", "generator_function", "method_definition", "class_declaration", "class");
 
-    /** 함수 안에서 const/let/var 로 선언한 지역 이름 → 값 식 (중첩 함수 안은 제외) */
+    /** 함수마다 지역 이름 표를 한 번만 만든다 (라우트가 수백 개인 큰 함수에서 호출마다 다시 훑으면 느리다) */
+    private final Map<String, Map<String, TSNode>> localsCache = new HashMap<>();
+
+    /** 함수 안에서 const/let/var 로 선언한 지역 이름 → 값 식 (중첩 함수 안은 제외). 고칠 수 없는 표를 돌려준다 */
     Map<String, TSNode> locals(NodeFunction fn) {
+        String key = fn.file().filePath + ":" + fn.node().getStartByte() + ":" + fn.node().getEndByte();
+        Map<String, TSNode> cached = localsCache.get(key);
+        if (cached == null) {
+            cached = java.util.Collections.unmodifiableMap(buildLocals(fn));
+            localsCache.put(key, cached);
+        }
+        return cached;
+    }
+
+    private Map<String, TSNode> buildLocals(NodeFunction fn) {
         Map<String, TSNode> locals = new HashMap<>();
         NodeFile file = fn.file();
         fn.paramTypes().keySet().forEach(p -> locals.put(p, null));
